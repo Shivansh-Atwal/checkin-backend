@@ -18,7 +18,28 @@ const PORT = process.env.PORT || 5000;
 app.use(helmet({
   crossOriginResourcePolicy: false, // Allows static assets access from localhost frontend
 }));
-app.use(cors());
+// Dynamic CORS Setup to support Web dashboard and Mobile WebViews
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',') 
+  : [];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like native mobile apps, curl, postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is explicitly allowed or belongs to local network/loopback ranges
+    const isAllowed = allowedOrigins.includes(origin) || 
+      /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin);
+      
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));

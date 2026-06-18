@@ -10,6 +10,7 @@ const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const morgan_1 = __importDefault(require("morgan"));
 const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
 const db_1 = __importDefault(require("./config/db"));
 const api_1 = __importDefault(require("./routes/api"));
 const errorHandler_1 = require("./middleware/errorHandler");
@@ -19,7 +20,27 @@ const PORT = process.env.PORT || 5000;
 app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: false, // Allows static assets access from localhost frontend
 }));
-app.use((0, cors_1.default)());
+// Dynamic CORS Setup to support Web dashboard and Mobile WebViews
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : [];
+app.use((0, cors_1.default)({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like native mobile apps, curl, postman)
+        if (!origin)
+            return callback(null, true);
+        // Check if origin is explicitly allowed or belongs to local network/loopback ranges
+        const isAllowed = allowedOrigins.includes(origin) ||
+            /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin);
+        if (isAllowed) {
+            callback(null, true);
+        }
+        else {
+            callback(new Error(`Origin ${origin} not allowed by CORS`));
+        }
+    },
+    credentials: true
+}));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, morgan_1.default)('dev'));
@@ -53,6 +74,27 @@ app.listen(PORT, async () => {
             dbName = match[2];
         }
     }
+    // Get network IP address for local mobile app testing
+    let networkAddress = '';
+    try {
+        const interfaces = os_1.default.networkInterfaces();
+        for (const name of Object.keys(interfaces)) {
+            const netInterface = interfaces[name];
+            if (netInterface) {
+                for (const net of netInterface) {
+                    if (net.family === 'IPv4' && !net.internal) {
+                        networkAddress = `http://${net.address}:${PORT}`;
+                        break;
+                    }
+                }
+            }
+            if (networkAddress)
+                break;
+        }
+    }
+    catch (e) {
+        // Ignore OS error
+    }
     console.log(`\x1b[36m%s\x1b[0m`, `  __  __   _       _  __ _              `);
     console.log(`\x1b[36m%s\x1b[0m`, ` |  \\/  | | |     | |/ /| |             `);
     console.log(`\x1b[36m%s\x1b[0m`, ` | \\  / | | |__   | ' / | |  ___ __  __ `);
@@ -63,6 +105,9 @@ app.listen(PORT, async () => {
     console.log(`\x1b[90m%s\x1b[0m`, `────────────────────────────────────────────────`);
     console.log(`\x1b[32m✔\x1b[0m REST API Server started successfully`);
     console.log(`\x1b[34m➜\x1b[0m Local Address:      \x1b[1m\x1b[37mhttp://localhost:${PORT}\x1b[0m`);
+    if (networkAddress) {
+        console.log(`\x1b[34m➜\x1b[0m Network Address:    \x1b[1m\x1b[37m${networkAddress}\x1b[0m`);
+    }
     console.log(`\x1b[34m➜\x1b[0m Environment:        \x1b[33m${process.env.NODE_ENV || 'development'}\x1b[0m`);
     console.log(`\x1b[34m➜\x1b[0m Database Engine:   \x1b[35mPostgreSQL\x1b[0m`);
     console.log(`\x1b[34m➜\x1b[0m Database Host:     \x1b[90m${dbHost}\x1b[0m`);
