@@ -1,0 +1,15 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const customerController_1 = require("../controllers/customerController");
+const auth_1 = require("../middleware/auth");
+const constants_1 = require("../config/constants");
+const uploader_1 = require("../utils/uploader");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate);
+router.get('/search', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CUSTOMERS_READ), customerController_1.CustomerController.search);
+router.get('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CUSTOMERS_READ), customerController_1.CustomerController.getById);
+router.post('/', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CUSTOMERS_CREATE), customerController_1.CustomerController.create);
+router.put('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CUSTOMERS_UPDATE), customerController_1.CustomerController.update);
+router.post('/upload', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CUSTOMERS_CREATE), uploader_1.upload.single('document'), customerController_1.CustomerController.uploadDocument);
+exports.default = router;

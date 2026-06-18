@@ -1,0 +1,17 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const roomController_1 = require("../controllers/roomController");
+const auth_1 = require("../middleware/auth");
+const constants_1 = require("../config/constants");
+const uploader_1 = require("../utils/uploader");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate);
+router.get('/', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.ROOMS_READ), roomController_1.RoomController.getAll);
+router.get('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.ROOMS_READ), roomController_1.RoomController.getById);
+router.post('/', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.ROOMS_CREATE), roomController_1.RoomController.create);
+router.put('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.ROOMS_UPDATE), roomController_1.RoomController.update);
+router.patch('/:id/status', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.ROOMS_UPDATE), roomController_1.RoomController.updateStatus);
+router.delete('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.ROOMS_DELETE), roomController_1.RoomController.delete);
+router.post('/upload', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.ROOMS_CREATE), uploader_1.upload.single('image'), roomController_1.RoomController.uploadImage);
+exports.default = router;

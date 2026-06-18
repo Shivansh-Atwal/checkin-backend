@@ -1,0 +1,215 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                   String            @id @default(uuid())
+  email                String            @unique
+  passwordHash         String
+  fullName             String
+  roleId               String
+  role                 Role              @relation(fields: [roleId], references: [id])
+  isDisabled           Boolean           @default(false)
+  hasCustomPermissions Boolean           @default(false)
+  userPermissions      UserPermission[]
+  loginHistory         LoginHistory[]
+  auditLogs            AuditLog[]
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+}
+
+model Role {
+  id          String            @id @default(uuid())
+  name        String            @unique // "ADMIN", "EMPLOYEE"
+  description String?
+  permissions RolePermission[]
+  users       User[]
+}
+
+model Permission {
+  id              String            @id @default(uuid())
+  name            String            @unique // e.g., "dashboard.view", "rooms.create"
+  description     String?
+  roles           RolePermission[]
+  userPermissions UserPermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission  @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserPermission {
+  userId       String
+  permissionId String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission   Permission  @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+}
+
+model LoginHistory {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  userAgent String?
+  loginTime DateTime @default(now())
+}
+
+model Room {
+  id            String      @id @default(uuid())
+  roomNumber    String      @unique
+  capacity      Int
+  bookings      Booking[]
+  checkIns      CheckIn[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Customer {
+  id              String             @id @default(uuid())
+  fullName        String
+  mobileNumber    String             @unique
+  alternateNumber String?
+  email           String?
+  dob             DateTime?
+  gender          String?
+  address         String?
+  city            String?
+  state           String?
+  country         String?
+  pincode         String?
+  documents       CustomerDocument[]
+  bookings        Booking[]
+  checkIns        CheckIn[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model CustomerDocument {
+  id                 String   @id @default(uuid())
+  customerId         String
+  customer           Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  idType             String   // "Aadhaar", "Passport", "Driving License", "Voter ID"
+  idNumber           String
+  frontImageUrl      String?
+  backImageUrl       String?
+  customerPhotoUrl   String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Booking {
+  id                String    @id @default(uuid())
+  bookingNumber     String    @unique
+  customerId        String
+  customer          Customer  @relation(fields: [customerId], references: [id])
+  checkInDate       DateTime
+  checkOutDate      DateTime
+  numberOfGuests    Int
+  roomId            String
+  room              Room      @relation(fields: [roomId], references: [id])
+  advancePayment    Float     @default(0)
+  price             Float     @default(0)
+  status            String    // "PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"
+  notes             String?
+  checkInRecord     CheckIn?
+  payments          Payment[]
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model CheckIn {
+  id                    String    @id @default(uuid())
+  registrationNumber    String?   @unique
+  bookingId             String?   @unique
+  booking               Booking?  @relation(fields: [bookingId], references: [id])
+  customerId            String
+  customer              Customer  @relation(fields: [customerId], references: [id])
+  roomId                String
+  room                  Room      @relation(fields: [roomId], references: [id])
+  numberOfGuests        Int
+  checkInTime           DateTime  @default(now())
+  expectedCheckOutDate  DateTime
+  actualCheckOutTime    DateTime?
+  advancePaid           Float     @default(0)
+  remainingAmount       Float
+  pricePerNight         Float     @default(0)
+  status                String    // "ACTIVE", "CHECKED_OUT"
+  checkoutRecord        Checkout?
+  payments              Payment[]
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Checkout {
+  id                String   @id @default(uuid())
+  checkInId         String   @unique
+  checkIn           CheckIn  @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  roomCharges       Float
+  additionalCharges Float    @default(0)
+  discount          Float    @default(0)
+  taxAmount         Float    @default(0)
+  finalAmount       Float
+  billingStatus     String   // "PENDING", "PAID"
+  invoice           Invoice?
+  createdAt         DateTime @default(now())
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  checkInId     String?
+  checkIn       CheckIn? @relation(fields: [checkInId], references: [id])
+  bookingId     String?
+  booking       Booking? @relation(fields: [bookingId], references: [id])
+  amount        Float
+  paymentType   String   // "ADVANCE", "PARTIAL", "FULL"
+  paymentMethod String   // "Cash", "UPI", "Debit Card", "Credit Card", "Bank Transfer"
+  transactionId String?
+  paymentDate   DateTime @default(now())
+  paymentStatus String   // "PENDING", "PARTIAL", "PAID", "REFUNDED"
+  notes         String?
+  createdAt     DateTime @default(now())
+}
+
+model Invoice {
+  id            String   @id @default(uuid())
+  checkoutId    String   @unique
+  checkout      Checkout @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+  invoiceNumber String   @unique
+  totalAmount   Float
+  pdfUrl        String?
+  createdAt     DateTime @default(now())
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  recipient String    // Phone number or Email
+  message   String
+  channel   String    // "WhatsApp", "SMS", "Email"
+  status    String    // "PENDING", "SENT", "FAILED"
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model AuditLog {
+  id                String   @id @default(uuid())
+  userId            String?
+  user              User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName          String?
+  action            String   // e.g., "Employee Created", "Booking Updated"
+  ipAddress         String?
+  deviceInformation String?
+  details           String?  // JSON string
+  timestamp         DateTime @default(now())
+}
