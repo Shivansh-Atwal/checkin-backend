@@ -5,6 +5,7 @@ const RoomRepository_1 = require("../repositories/RoomRepository");
 const StorageService_1 = require("../services/StorageService");
 const AuditLogService_1 = require("../services/AuditLogService");
 const errorHandler_1 = require("../middleware/errorHandler");
+const RedisService_1 = require("../services/RedisService");
 class RoomController {
     static async getAll(req, res, next) {
         try {
@@ -58,6 +59,7 @@ class RoomController {
                 ipAddress: req.ip,
                 details: { roomId: room?.id, roomNumber },
             });
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(201).json({
                 success: true,
                 data: room,
@@ -79,6 +81,7 @@ class RoomController {
                 ipAddress: req.ip,
                 details: { roomId: id, updates: req.body },
             });
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(200).json({
                 success: true,
                 data: updated,
@@ -104,6 +107,7 @@ class RoomController {
                 ipAddress: req.ip,
                 details: { roomId: id, newStatus: status },
             });
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(200).json({
                 success: true,
                 data: updated,
@@ -125,6 +129,7 @@ class RoomController {
                 ipAddress: req.ip,
                 details: { roomId: id },
             });
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(200).json({
                 success: true,
                 message: 'Room deleted successfully.',

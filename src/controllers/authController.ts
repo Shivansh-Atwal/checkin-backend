@@ -3,7 +3,11 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { UserRepository } from '../repositories/UserRepository';
 import { AppError } from '../middleware/errorHandler';
-import prisma from '../config/db';
+import prisma, { getPrismaClientForSchema } from '../config/db';
+import { exec } from 'child_process';
+import util from 'util';
+
+const execPromise = util.promisify(exec);
 
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'default-hotelflow-jwt-access-secret-key-reception';
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'default-hotelflow-jwt-refresh-secret-key-owner';
@@ -148,6 +152,195 @@ export class AuthController {
       });
     } catch (error) {
       next(error);
+    }
+  }
+
+  static async registerTenant(req: Request, res: Response, next: NextFunction) {
+    const { tenantName, adminEmail, adminPassword, adminFullName, developerPassword } = req.body;
+
+    const devSecret = process.env.DEVELOPER_PASSWORD || 'hotelflow-dev-2026';
+    if (developerPassword !== devSecret) {
+      return next(new AppError(403, 'Invalid developer password. Registration unauthorized.'));
+    }
+
+    if (!tenantName || !adminEmail || !adminPassword || !adminFullName) {
+      return next(new AppError(400, 'Tenant name, admin email, password, and full name are required.'));
+    }
+
+    const cleanTenantName = tenantName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!cleanTenantName) {
+      return next(new AppError(400, 'Invalid tenant name. Only alphanumeric characters are allowed.'));
+    }
+
+    const schemaName = `tenant_${cleanTenantName}`;
+
+    try {
+      // 1. Check if schema already exists
+      const exists = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1`,
+        schemaName
+      );
+
+      if (exists.length > 0) {
+        return next(new AppError(409, 'This tenant name is already registered.'));
+      }
+
+      // 2. Generate DATABASE_URL for new schema
+      const baseDbUrl = process.env.DATABASE_URL;
+      if (!baseDbUrl) {
+        throw new Error('DATABASE_URL is not set in env');
+      }
+
+      let tenantDbUrl = baseDbUrl;
+      if (baseDbUrl.includes('?')) {
+        if (tenantDbUrl.includes('schema=')) {
+          tenantDbUrl = tenantDbUrl.replace(/schema=[^&]*/, `schema=${schemaName}`);
+        } else {
+          tenantDbUrl = `${tenantDbUrl}&schema=${schemaName}`;
+        }
+      } else {
+        tenantDbUrl = `${baseDbUrl}?schema=${schemaName}`;
+      }
+
+      console.log(`Setting up database schema: ${schemaName}`);
+
+      // 3. Programmatically push Prisma schema
+      const command = `npx prisma db push --accept-data-loss`;
+      await execPromise(command, {
+        env: {
+          ...process.env,
+          DATABASE_URL: tenantDbUrl,
+        },
+      });
+
+      // 4. Initialize client and seed basic tenant data
+      const tenantPrisma = getPrismaClientForSchema(schemaName);
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(adminPassword, 10);
+
+      // Seed within a transaction on the tenant's schema client
+      await tenantPrisma.$transaction(async (tx) => {
+        // A. Seed Permissions
+        const permissionsList = [
+          { name: 'dashboard.view', description: 'View dashboard metrics and grids' },
+          { name: 'rooms.create', description: 'Add new rooms' },
+          { name: 'rooms.read', description: 'View room details' },
+          { name: 'rooms.update', description: 'Edit existing rooms' },
+          { name: 'rooms.delete', description: 'Delete rooms' },
+          { name: 'bookings.create', description: 'Create reservations' },
+          { name: 'bookings.read', description: 'View reservations' },
+          { name: 'bookings.update', description: 'Modify reservations' },
+          { name: 'bookings.cancel', description: 'Cancel reservations' },
+          { name: 'customers.create', description: 'Add new guest records' },
+          { name: 'customers.read', description: 'Search and view guest details' },
+          { name: 'customers.update', description: 'Edit guest records' },
+          { name: 'checkins.create', description: 'Perform customer check-in' },
+          { name: 'checkouts.create', description: 'Perform customer check-out' },
+          { name: 'payments.create', description: 'Record payment transactions' },
+          { name: 'payments.read', description: 'View payment receipts and trends' },
+          { name: 'reports.read', description: 'Access revenue and occupancy charts' },
+          { name: 'employees.manage', description: 'Manage employee accounts and override permissions' },
+          { name: 'settings.manage', description: 'Manage site settings' },
+          { name: 'auditlogs.read', description: 'Read system audit logs' },
+        ];
+
+        const permissionsMap: Record<string, string> = {};
+        for (const perm of permissionsList) {
+          const p = await tx.permission.create({
+            data: perm,
+          });
+          permissionsMap[perm.name] = p.id;
+        }
+
+        // B. Seed Roles
+        const adminRole = await tx.role.create({
+          data: {
+            name: 'ADMIN',
+            description: 'System Administrator / Owner with all accesses',
+          },
+        });
+
+        const employeeRole = await tx.role.create({
+          data: {
+            name: 'EMPLOYEE',
+            description: 'Standard staff / Receptionist with limited operations',
+          },
+        });
+
+        // C. Link Permissions to Roles
+        for (const permName of Object.keys(permissionsMap)) {
+          await tx.rolePermission.create({
+            data: {
+              roleId: adminRole.id,
+              permissionId: permissionsMap[permName],
+            },
+          });
+        }
+
+        const employeePerms = [
+          'dashboard.view',
+          'rooms.read',
+          'bookings.create',
+          'bookings.read',
+          'bookings.update',
+          'bookings.cancel',
+          'customers.create',
+          'customers.read',
+          'customers.update',
+          'checkins.create',
+          'checkouts.create',
+          'payments.create',
+          'payments.read',
+        ];
+
+        for (const permName of employeePerms) {
+          await tx.rolePermission.create({
+            data: {
+              roleId: employeeRole.id,
+              permissionId: permissionsMap[permName],
+            },
+          });
+        }
+
+        // D. Create Owner/Admin user
+        await tx.user.create({
+          data: {
+            email: adminEmail,
+            passwordHash,
+            fullName: adminFullName,
+            roleId: adminRole.id,
+          },
+        });
+
+        // E. Seed Default Rooms
+        const initialRooms = [
+          { roomNumber: '101', capacity: 1 },
+          { roomNumber: '102', capacity: 2 },
+          { roomNumber: '103', capacity: 2 },
+          { roomNumber: '201', capacity: 2 },
+          { roomNumber: '202', capacity: 4 },
+        ];
+
+        for (const r of initialRooms) {
+          await tx.room.create({
+            data: r,
+          });
+        }
+      });
+
+      console.log(`Tenant ${cleanTenantName} created and seeded successfully.`);
+
+      res.status(201).json({
+        success: true,
+        message: 'Tenant setup completed successfully.',
+        data: {
+          tenantId: cleanTenantName,
+        },
+      });
+    } catch (error: any) {
+      console.error('Failed to register tenant:', error);
+      next(new AppError(500, `Tenant setup failed: ${error.message}`));
     }
   }
 }

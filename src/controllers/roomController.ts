@@ -3,6 +3,7 @@ import { RoomRepository } from '../repositories/RoomRepository';
 import { StorageService } from '../services/StorageService';
 import { AuditLogService } from '../services/AuditLogService';
 import { AppError } from '../middleware/errorHandler';
+import { RedisService } from '../services/RedisService';
 
 export class RoomController {
   static async getAll(req: Request, res: Response, next: NextFunction) {
@@ -63,6 +64,8 @@ export class RoomController {
         details: { roomId: room?.id, roomNumber },
       });
 
+      await RedisService.invalidateDashboardStats();
+
       res.status(201).json({
         success: true,
         data: room,
@@ -85,6 +88,8 @@ export class RoomController {
         ipAddress: req.ip as string,
         details: { roomId: id, updates: req.body },
       });
+
+      await RedisService.invalidateDashboardStats();
 
       res.status(200).json({
         success: true,
@@ -114,6 +119,8 @@ export class RoomController {
         details: { roomId: id, newStatus: status },
       });
 
+      await RedisService.invalidateDashboardStats();
+
       res.status(200).json({
         success: true,
         data: updated,
@@ -136,6 +143,8 @@ export class RoomController {
         ipAddress: req.ip as string,
         details: { roomId: id },
       });
+
+      await RedisService.invalidateDashboardStats();
 
       res.status(200).json({
         success: true,

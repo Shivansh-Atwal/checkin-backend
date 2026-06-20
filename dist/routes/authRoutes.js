@@ -6,5 +6,6 @@ const auth_1 = require("../middleware/auth");
 const router = (0, express_1.Router)();
 router.post('/login', authController_1.AuthController.login);
 router.post('/refresh', authController_1.AuthController.refresh);
+router.post('/register-tenant', authController_1.AuthController.registerTenant);
 router.get('/profile', auth_1.authenticate, authController_1.AuthController.getProfile);
 exports.default = router;

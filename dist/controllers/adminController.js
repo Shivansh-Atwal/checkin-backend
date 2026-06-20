@@ -10,6 +10,7 @@ const UserRepository_1 = require("../repositories/UserRepository");
 const AuditLogService_1 = require("../services/AuditLogService");
 const errorHandler_1 = require("../middleware/errorHandler");
 const RoomRepository_1 = require("../repositories/RoomRepository");
+const RedisService_1 = require("../services/RedisService");
 class AdminController {
     // --- Employee Management ---
     static async getAllEmployees(req, res, next) {
@@ -87,7 +88,7 @@ class AdminController {
             if (resetToDefault) {
                 await UserRepository_1.UserRepository.resetCustomPermissions(id);
             }
-            else if (permissionIds) {
+            else if (permissionIds && Array.isArray(permissionIds)) {
                 await UserRepository_1.UserRepository.setCustomPermissions(id, permissionIds);
             }
             const updated = await UserRepository_1.UserRepository.findById(id);
@@ -175,6 +176,14 @@ class AdminController {
     // --- Reports & Analytics ---
     static async getDashboardStats(req, res, next) {
         try {
+            // Check Redis cache first
+            const cachedStats = await RedisService_1.RedisService.get('dashboard-stats');
+            if (cachedStats) {
+                return res.status(200).json({
+                    success: true,
+                    data: JSON.parse(cachedStats),
+                });
+            }
             const roomsList = await RoomRepository_1.RoomRepository.getAll();
             const totalRooms = roomsList.length;
             const availableRooms = roomsList.filter(r => r.status === 'AVAILABLE').length;
@@ -199,18 +208,21 @@ class AdminController {
                 _sum: { remainingAmount: true },
                 where: { status: 'ACTIVE' },
             });
+            const statsData = {
+                totalRooms,
+                availableRooms,
+                occupiedRooms,
+                bookedRooms,
+                todayCheckins,
+                todayCheckouts,
+                todayRevenue: todayRevenue._sum.amount || 0,
+                pendingPayments: pendingPayments._sum.remainingAmount || 0,
+            };
+            // Cache stats in Redis for 30 seconds
+            await RedisService_1.RedisService.set('dashboard-stats', JSON.stringify(statsData), 30);
             res.status(200).json({
                 success: true,
-                data: {
-                    totalRooms,
-                    availableRooms,
-                    occupiedRooms,
-                    bookedRooms,
-                    todayCheckins,
-                    todayCheckouts,
-                    todayRevenue: todayRevenue._sum.amount || 0,
-                    pendingPayments: pendingPayments._sum.remainingAmount || 0,
-                },
+                data: statsData,
             });
         }
         catch (error) {

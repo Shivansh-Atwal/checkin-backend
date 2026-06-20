@@ -14,6 +14,7 @@ const os_1 = __importDefault(require("os"));
 const db_1 = __importDefault(require("./config/db"));
 const api_1 = __importDefault(require("./routes/api"));
 const errorHandler_1 = require("./middleware/errorHandler");
+const tenant_1 = require("./middleware/tenant");
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 // Security and utility Middlewares
@@ -46,6 +47,8 @@ app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, morgan_1.default)('dev'));
 // Serve uploaded documents statically
 app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '..', 'uploads')));
+// Multi-Tenant context router resolver
+app.use(tenant_1.tenantMiddleware);
 // Main API Route
 app.use('/api', api_1.default);
 // Root Hello check

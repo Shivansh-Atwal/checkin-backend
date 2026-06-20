@@ -5,6 +5,7 @@ import { UserRepository } from '../repositories/UserRepository';
 import { AuditLogService } from '../services/AuditLogService';
 import { AppError } from '../middleware/errorHandler';
 import { RoomRepository } from '../repositories/RoomRepository';
+import { RedisService } from '../services/RedisService';
 
 export class AdminController {
   // --- Employee Management ---
@@ -91,7 +92,7 @@ export class AdminController {
 
       if (resetToDefault) {
         await UserRepository.resetCustomPermissions(id);
-      } else if (permissionIds) {
+      } else if (permissionIds && Array.isArray(permissionIds)) {
         await UserRepository.setCustomPermissions(id, permissionIds);
       }
 
@@ -189,6 +190,15 @@ export class AdminController {
   // --- Reports & Analytics ---
   static async getDashboardStats(req: Request, res: Response, next: NextFunction) {
     try {
+      // Check Redis cache first
+      const cachedStats = await RedisService.get('dashboard-stats');
+      if (cachedStats) {
+        return res.status(200).json({
+          success: true,
+          data: JSON.parse(cachedStats),
+        });
+      }
+
       const roomsList = await RoomRepository.getAll();
       const totalRooms = roomsList.length;
       const availableRooms = roomsList.filter(r => r.status === 'AVAILABLE').length;
@@ -219,18 +229,23 @@ export class AdminController {
         where: { status: 'ACTIVE' },
       });
 
+      const statsData = {
+        totalRooms,
+        availableRooms,
+        occupiedRooms,
+        bookedRooms,
+        todayCheckins,
+        todayCheckouts,
+        todayRevenue: todayRevenue._sum.amount || 0,
+        pendingPayments: pendingPayments._sum.remainingAmount || 0,
+      };
+
+      // Cache stats in Redis for 30 seconds
+      await RedisService.set('dashboard-stats', JSON.stringify(statsData), 30);
+
       res.status(200).json({
         success: true,
-        data: {
-          totalRooms,
-          availableRooms,
-          occupiedRooms,
-          bookedRooms,
-          todayCheckins,
-          todayCheckouts,
-          todayRevenue: todayRevenue._sum.amount || 0,
-          pendingPayments: pendingPayments._sum.remainingAmount || 0,
-        },
+        data: statsData,
       });
     } catch (error) {
       next(error);

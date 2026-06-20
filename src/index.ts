@@ -10,6 +10,7 @@ import os from 'os';
 import prisma from './config/db';
 import apiRouter from './routes/api';
 import { errorHandler } from './middleware/errorHandler';
+import { tenantMiddleware } from './middleware/tenant';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -46,6 +47,9 @@ app.use(morgan('dev'));
 
 // Serve uploaded documents statically
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+
+// Multi-Tenant context router resolver
+app.use(tenantMiddleware);
 
 // Main API Route
 app.use('/api', apiRouter);

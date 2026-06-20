@@ -41,7 +41,39 @@ export class RoomRepository {
         },
       },
     });
-    return this.mapRoom(room);
+    
+    const mapped = this.mapRoom(room);
+    if (!mapped) return null;
+
+    if (mapped.status === 'OCCUPIED' && mapped.checkIns && mapped.checkIns.length > 0) {
+      const activeCheckIn = mapped.checkIns[0];
+      const otherCheckIns = await prisma.checkIn.findMany({
+        where: {
+          customerId: activeCheckIn.customerId,
+          status: 'ACTIVE',
+          NOT: { id: activeCheckIn.id },
+        },
+        include: {
+          room: true,
+        },
+      });
+      (mapped.checkIns[0] as any).otherCheckIns = otherCheckIns;
+    } else if (mapped.status === 'ADVANCE_BOOKED' && mapped.bookings && mapped.bookings.length > 0) {
+      const activeBooking = mapped.bookings[0];
+      const otherBookings = await prisma.booking.findMany({
+        where: {
+          customerId: activeBooking.customerId,
+          status: 'CONFIRMED',
+          NOT: { id: activeBooking.id },
+        },
+        include: {
+          room: true,
+        },
+      });
+      (mapped.bookings[0] as any).otherBookings = otherBookings;
+    }
+
+    return mapped;
   }
 
   static async findByRoomNumber(roomNumber: string) {

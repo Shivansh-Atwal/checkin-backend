@@ -14,6 +14,7 @@ const NotificationService_1 = require("../services/NotificationService");
 const AuditLogService_1 = require("../services/AuditLogService");
 const errorHandler_1 = require("../middleware/errorHandler");
 const db_1 = __importDefault(require("../config/db"));
+const RedisService_1 = require("../services/RedisService");
 class CheckoutController {
     static async getActiveCheckIns(req, res, next) {
         try {
@@ -29,7 +30,8 @@ class CheckoutController {
     }
     static async checkInWalkIn(req, res, next) {
         const { customerId, customerName, mobileNumber, roomId, numberOfGuests, numberOfRooms, // Added to ask for number of rooms
-        arrivalDate, arrivalTime, expectedCheckOutDate, advancePaid, remainingAmount, paymentMethod, pincode, state, country, address, city, registrationNumber, pricePerNight, } = req.body;
+        arrivalDate, arrivalTime, expectedCheckOutDate, advancePaid, remainingAmount, paymentMethod, pincode, state, country, address, city, registrationNumber, pricePerNight, document, // Extract document info
+         } = req.body;
         if (!customerId && (!customerName || !mobileNumber)) {
             return next(new errorHandler_1.AppError(400, 'Required guest check-in details are missing.'));
         }
@@ -46,6 +48,7 @@ class CheckoutController {
                         state,
                         country,
                         pincode,
+                        document, // Create document if sent
                     });
                     if (!newCust) {
                         return next(new errorHandler_1.AppError(500, 'Customer profile creation failed.'));
@@ -60,6 +63,7 @@ class CheckoutController {
                         state: state || existingCust.state || undefined,
                         country: country || existingCust.country || undefined,
                         pincode: pincode || existingCust.pincode || undefined,
+                        document, // Update document if sent
                     });
                 }
                 resolvedCustomerId = existingCust.id;
@@ -141,6 +145,7 @@ class CheckoutController {
                 ipAddress: req.ip,
                 details: { checkInId: checkIn.id, roomNumbers: roomIdsToAllocate.length },
             });
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(201).json({
                 success: true,
                 data: checkIn,
@@ -230,6 +235,7 @@ class CheckoutController {
                 ipAddress: req.ip,
                 details: { checkInId: checkIn.id, bookingId, roomNumbers: roomIdsToAllocate.length },
             });
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(201).json({
                 success: true,
                 data: checkIn,
@@ -400,6 +406,7 @@ class CheckoutController {
                 ipAddress: req.ip,
                 details: { checkoutStaysCount: activeStays.length, customerId: checkIn.customerId },
             });
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(200).json({
                 success: true,
                 data: {
@@ -435,6 +442,7 @@ class CheckoutController {
                 ipAddress: req.ip,
                 details: { paymentId: payment.id, amount },
             });
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(200).json({
                 success: true,
                 data: payment,

@@ -9,6 +9,7 @@ import { NotificationService } from '../services/NotificationService';
 import { AuditLogService } from '../services/AuditLogService';
 import { AppError } from '../middleware/errorHandler';
 import prisma from '../config/db';
+import { RedisService } from '../services/RedisService';
 
 export class CheckoutController {
   static async getActiveCheckIns(req: Request, res: Response, next: NextFunction) {
@@ -44,6 +45,7 @@ export class CheckoutController {
       city,
       registrationNumber,
       pricePerNight,
+      document, // Extract document info
     } = req.body;
 
     if (!customerId && (!customerName || !mobileNumber)) {
@@ -64,6 +66,7 @@ export class CheckoutController {
             state,
             country,
             pincode,
+            document, // Create document if sent
           });
           if (!newCust) {
             return next(new AppError(500, 'Customer profile creation failed.'));
@@ -77,6 +80,7 @@ export class CheckoutController {
             state: state || existingCust.state || undefined,
             country: country || existingCust.country || undefined,
             pincode: pincode || existingCust.pincode || undefined,
+            document, // Update document if sent
           });
         }
         resolvedCustomerId = existingCust.id;
@@ -178,6 +182,8 @@ export class CheckoutController {
         ipAddress: req.ip as string,
         details: { checkInId: checkIn.id, roomNumbers: roomIdsToAllocate.length },
       });
+
+      await RedisService.invalidateDashboardStats();
 
       res.status(201).json({
         success: true,
@@ -304,6 +310,8 @@ export class CheckoutController {
         ipAddress: req.ip as string,
         details: { checkInId: checkIn.id, bookingId, roomNumbers: roomIdsToAllocate.length },
       });
+
+      await RedisService.invalidateDashboardStats();
 
       res.status(201).json({
         success: true,
@@ -509,6 +517,8 @@ export class CheckoutController {
         details: { checkoutStaysCount: activeStays.length, customerId: checkIn.customerId },
       });
 
+      await RedisService.invalidateDashboardStats();
+
       res.status(200).json({
         success: true,
         data: {
@@ -547,6 +557,8 @@ export class CheckoutController {
         ipAddress: req.ip as string,
         details: { paymentId: payment.id, amount },
       });
+
+      await RedisService.invalidateDashboardStats();
 
       res.status(200).json({
         success: true,
