@@ -9,6 +9,7 @@ const tenantMiddleware = (req, res, next) => {
     const schemaName = tenantHeader && tenantHeader.toLowerCase() !== 'public'
         ? `tenant_${tenantHeader.toLowerCase().replace(/[^a-z0-9_]/g, '')}`
         : 'public';
+    console.log(`[Tenant Middleware] Path: ${req.path} | X-Tenant-Id: '${tenantHeader || ''}' -> Schema: '${schemaName}'`);
     try {
         const client = (0, db_1.getPrismaClientForSchema)(schemaName);
         db_1.tenantStorage.run(client, () => {

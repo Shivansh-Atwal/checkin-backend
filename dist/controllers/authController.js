@@ -56,7 +56,51 @@ class AuthController {
             return next(new errorHandler_1.AppError(400, 'Email and password are required.'));
         }
         try {
-            const user = await UserRepository_1.UserRepository.findByEmail(email);
+            let user = await UserRepository_1.UserRepository.findByEmail(email);
+            let resolvedSchema = 'public';
+            // Scan other tenant schemas if not found in the request-scoped schema client
+            if (!user) {
+                const schemas = await db_1.default.$queryRawUnsafe(`SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`);
+                for (const s of schemas) {
+                    const tenantPrisma = (0, db_1.getPrismaClientForSchema)(s.schema_name);
+                    try {
+                        const foundUser = await tenantPrisma.user.findUnique({
+                            where: { email },
+                            include: {
+                                role: {
+                                    include: {
+                                        permissions: {
+                                            include: {
+                                                permission: true,
+                                            },
+                                        },
+                                    },
+                                },
+                                userPermissions: {
+                                    include: {
+                                        permission: true,
+                                    },
+                                },
+                            },
+                        });
+                        if (foundUser) {
+                            user = foundUser;
+                            resolvedSchema = s.schema_name;
+                            break;
+                        }
+                    }
+                    catch (err) {
+                        // Ignore error for schemas that are not initialized yet
+                    }
+                }
+            }
+            else {
+                // Find which schema was active to record login history
+                const tenantHeader = req.headers['x-tenant-id'];
+                resolvedSchema = tenantHeader && tenantHeader.toLowerCase() !== 'public'
+                    ? `tenant_${tenantHeader.toLowerCase().replace(/[^a-z0-9_]/g, '')}`
+                    : 'public';
+            }
             if (!user || user.isDisabled) {
                 return next(new errorHandler_1.AppError(401, 'Invalid credentials or account disabled.'));
             }
@@ -77,8 +121,9 @@ class AuthController {
                 permissions: allPermissions,
             }, ACCESS_SECRET, { expiresIn: ACCESS_EXPIRY });
             const refreshToken = jsonwebtoken_1.default.sign({ id: user.id }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRY });
-            // Record Login History
-            await db_1.default.loginHistory.create({
+            // Record Login History under the correct schema
+            const activePrisma = (0, db_1.getPrismaClientForSchema)(resolvedSchema);
+            await activePrisma.loginHistory.create({
                 data: {
                     userId: user.id,
                     ipAddress: req.ip || null,
@@ -90,6 +135,7 @@ class AuthController {
                 data: {
                     accessToken,
                     refreshToken,
+                    tenantId: resolvedSchema.startsWith('tenant_') ? resolvedSchema.replace('tenant_', '') : 'public',
                     user: {
                         id: user.id,
                         email: user.email,
