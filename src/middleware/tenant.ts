@@ -10,6 +10,8 @@ export const tenantMiddleware = (req: Request, res: Response, next: NextFunction
     ? `tenant_${tenantHeader.toLowerCase().replace(/[^a-z0-9_]/g, '')}`
     : 'public';
   
+  console.log(`[Tenant Middleware] Path: ${req.path} | X-Tenant-Id: '${tenantHeader || ''}' -> Schema: '${schemaName}'`);
+  
   try {
     const client = getPrismaClientForSchema(schemaName);
     tenantStorage.run(client, () => {
