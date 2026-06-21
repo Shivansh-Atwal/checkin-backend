@@ -148,6 +148,7 @@ model CheckIn {
   status                String    // "ACTIVE", "CHECKED_OUT"
   checkoutRecord        Checkout?
   payments              Payment[]
+  extraCharges          ExtraCharge[]
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 }
@@ -212,4 +213,22 @@ model AuditLog {
   deviceInformation String?
   details           String?  // JSON string
   timestamp         DateTime @default(now())
+}
+
+model ExtraCharge {
+  id          String   @id @default(uuid())
+  checkInId   String
+  checkIn     CheckIn  @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  itemName    String
+  amount      Float
+  quantity    Int      @default(1)
+  createdAt   DateTime @default(now())
+}
+
+model InventoryItem {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  quantity  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

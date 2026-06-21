@@ -29,13 +29,13 @@ export class CustomerRepository {
     return prisma.customer.findMany({
       where: {
         OR: [
-          { fullName: { contains: query } },
-          { mobileNumber: { contains: query } },
-          { email: { contains: query } },
+          { fullName: { contains: query, mode: 'insensitive' } },
+          { mobileNumber: { contains: query, mode: 'insensitive' } },
+          { email: { contains: query, mode: 'insensitive' } },
           {
             documents: {
               some: {
-                idNumber: { contains: query },
+                idNumber: { contains: query, mode: 'insensitive' },
               },
             },
           },

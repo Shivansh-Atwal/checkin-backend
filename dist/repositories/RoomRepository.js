@@ -39,7 +39,7 @@ class RoomRepository {
             include: {
                 checkIns: {
                     where: { status: 'ACTIVE' },
-                    include: { customer: true },
+                    include: { customer: true, extraCharges: true },
                 },
                 bookings: {
                     where: { status: 'CONFIRMED' },
@@ -99,9 +99,11 @@ class RoomRepository {
             include: {
                 checkIns: {
                     where: { status: 'ACTIVE' },
+                    include: { customer: true },
                 },
                 bookings: {
                     where: { status: 'CONFIRMED' },
+                    include: { customer: true },
                 },
             },
             orderBy: { roomNumber: 'asc' },

@@ -15,6 +15,8 @@ router.post('/checkin/booking', checkPermission(PERMISSIONS.CHECKINS_CREATE), Ch
 // Check-outs
 router.get('/checkout/preview/:checkInId', checkPermission(PERMISSIONS.CHECKOUTS_CREATE), CheckoutController.previewBill);
 router.post('/checkout', checkPermission(PERMISSIONS.CHECKOUTS_CREATE), CheckoutController.checkout);
+router.post('/checkin/:checkInId/extra-charges', checkPermission(PERMISSIONS.CHECKINS_CREATE), CheckoutController.addExtraCharge);
+router.get('/checkin/:checkInId/extra-charges', checkPermission(PERMISSIONS.CHECKINS_CREATE), CheckoutController.getExtraCharges);
 
 // Payments
 router.post('/payments', checkPermission(PERMISSIONS.PAYMENTS_CREATE), CheckoutController.collectPartialPayment);

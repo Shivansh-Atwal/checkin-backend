@@ -14,8 +14,8 @@ export class PaymentRepository {
   static async getAll() {
     return prisma.payment.findMany({
       include: {
-        checkIn: { include: { customer: true } },
-        booking: { include: { customer: true } },
+        checkIn: { include: { customer: true, room: true, checkoutRecord: true } },
+        booking: { include: { customer: true, room: true } },
       },
       orderBy: { paymentDate: 'desc' },
     });

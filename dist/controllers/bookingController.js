@@ -39,8 +39,9 @@ class BookingController {
         }
     }
     static async create(req, res, next) {
-        const { customerId, mobileNumber, customerName, roomId, checkInDate, checkOutDate, numberOfGuests, advancePayment, price, notes } = req.body;
-        if ((!customerId && (!customerName || !mobileNumber)) || !roomId || !checkInDate || !checkOutDate || !price) {
+        const { customerId, mobileNumber, customerName, roomId, roomIds, checkInDate, checkOutDate, numberOfGuests, advancePayment, price, notes } = req.body;
+        const targetRoomIds = roomIds && Array.isArray(roomIds) && roomIds.length > 0 ? roomIds : (roomId ? [roomId] : []);
+        if ((!customerId && (!customerName || !mobileNumber)) || targetRoomIds.length === 0 || !checkInDate || !checkOutDate || !price) {
             return next(new errorHandler_1.AppError(400, 'Required reservation details are missing.'));
         }
         try {
@@ -60,38 +61,44 @@ class BookingController {
                 }
                 resolvedCustomerId = existingCust.id;
             }
-            // 2. Verify Room Availability
-            const room = await RoomRepository_1.RoomRepository.findById(roomId);
-            if (!room || room.status !== 'AVAILABLE') {
-                return next(new errorHandler_1.AppError(400, 'Room is not available for booking.'));
+            const createdBookings = [];
+            for (let i = 0; i < targetRoomIds.length; i++) {
+                const rId = targetRoomIds[i];
+                // 2. Verify Room Availability
+                const room = await RoomRepository_1.RoomRepository.findById(rId);
+                if (!room || room.status !== 'AVAILABLE') {
+                    return next(new errorHandler_1.AppError(400, `Room ${room?.roomNumber || rId} is not available for booking.`));
+                }
+                // 3. Create Booking
+                const booking = await BookingRepository_1.BookingRepository.create({
+                    customerId: resolvedCustomerId,
+                    roomId: rId,
+                    checkInDate: new Date(checkInDate),
+                    checkOutDate: new Date(checkOutDate),
+                    numberOfGuests: Math.max(1, Math.round(Number(numberOfGuests || 1) / targetRoomIds.length)),
+                    advancePayment: i === 0 ? Number(advancePayment || 0) : 0,
+                    price: Number(price),
+                    notes: i === 0 ? notes : `Part of group booking: ${notes || ''}`,
+                });
+                if (!booking) {
+                    return next(new errorHandler_1.AppError(500, 'Booking transaction failed.'));
+                }
+                createdBookings.push(booking);
             }
-            // 3. Create Booking
-            const booking = await BookingRepository_1.BookingRepository.create({
-                customerId: resolvedCustomerId,
-                roomId,
-                checkInDate: new Date(checkInDate),
-                checkOutDate: new Date(checkOutDate),
-                numberOfGuests: Number(numberOfGuests || 1),
-                advancePayment: Number(advancePayment || 0),
-                price: Number(price),
-                notes,
-            });
-            if (!booking) {
-                return next(new errorHandler_1.AppError(500, 'Booking transaction failed.'));
-            }
+            const primaryBooking = createdBookings[0];
             // Send confirmation notification
-            await NotificationService_1.NotificationService.sendBookingConfirmation(booking.customer.fullName, booking.customer.mobileNumber, booking.bookingNumber, booking.room.roomNumber);
+            await NotificationService_1.NotificationService.sendBookingConfirmation(primaryBooking.customer.fullName, primaryBooking.customer.mobileNumber, primaryBooking.bookingNumber, primaryBooking.room.roomNumber);
             // Audit action
             await AuditLogService_1.AuditLogService.log({
                 userId: req.user?.id,
                 userName: req.user?.fullName,
                 action: 'Booking Created',
                 ipAddress: req.ip,
-                details: { bookingId: booking.id, bookingNumber: booking.bookingNumber },
+                details: { bookingId: primaryBooking.id, bookingNumber: primaryBooking.bookingNumber, roomIds: targetRoomIds },
             });
             res.status(201).json({
                 success: true,
-                data: booking,
+                data: primaryBooking,
             });
         }
         catch (error) {

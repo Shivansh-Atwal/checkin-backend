@@ -29,7 +29,7 @@ class CheckoutController {
         }
     }
     static async checkInWalkIn(req, res, next) {
-        const { customerId, customerName, mobileNumber, roomId, numberOfGuests, numberOfRooms, // Added to ask for number of rooms
+        const { customerId, customerName, mobileNumber, roomId, roomIds, numberOfGuests, numberOfRooms, // Added to ask for number of rooms
         arrivalDate, arrivalTime, expectedCheckOutDate, advancePaid, remainingAmount, paymentMethod, pincode, state, country, address, city, registrationNumber, pricePerNight, document, // Extract document info
          } = req.body;
         if (!customerId && (!customerName || !mobileNumber)) {
@@ -81,35 +81,48 @@ class CheckoutController {
                     return next(new errorHandler_1.AppError(400, `Registration number '${registrationNumber}' is already in use.`));
                 }
             }
-            // 1. Fetch available rooms to verify capacity
-            const requestedRoomsCount = Math.max(1, Number(numberOfRooms || 1));
-            const availableRooms = await RoomRepository_1.RoomRepository.getAll({ status: 'AVAILABLE' });
-            // Automatically allocate first free room if not provided
-            let primaryRoomId = roomId;
-            if (!primaryRoomId) {
-                if (availableRooms.length === 0) {
-                    return next(new errorHandler_1.AppError(400, 'No rooms are currently available.'));
+            let roomIdsToAllocate = [];
+            if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
+                roomIdsToAllocate = roomIds;
+            }
+            else {
+                // 1. Fetch available rooms to verify capacity
+                const requestedRoomsCount = Math.max(1, Number(numberOfRooms || 1));
+                const availableRooms = await RoomRepository_1.RoomRepository.getAll({ status: 'AVAILABLE' });
+                // Automatically allocate first free room if not provided
+                let primaryRoomId = roomId;
+                if (!primaryRoomId) {
+                    if (availableRooms.length === 0) {
+                        return next(new errorHandler_1.AppError(400, 'No rooms are currently available.'));
+                    }
+                    primaryRoomId = availableRooms[0].id;
                 }
-                primaryRoomId = availableRooms[0].id;
+                const room = await RoomRepository_1.RoomRepository.findById(primaryRoomId);
+                if (!room || (room.status !== 'AVAILABLE' && room.status !== 'ADVANCE_BOOKED')) {
+                    return next(new errorHandler_1.AppError(400, 'Selected room is not available.'));
+                }
+                // If the selected room is AVAILABLE, it is already counted in availableRooms.
+                // If it is ADVANCE_BOOKED, we need it plus (requestedRoomsCount - 1) other AVAILABLE rooms.
+                const isSelectedRoomAvailable = room.status === 'AVAILABLE';
+                const neededFreeRooms = isSelectedRoomAvailable ? requestedRoomsCount : requestedRoomsCount - 1;
+                const totalFreeRoomsCount = isSelectedRoomAvailable ? availableRooms.length : availableRooms.length + 1;
+                if (availableRooms.length < neededFreeRooms) {
+                    return next(new errorHandler_1.AppError(450, `Not enough rooms are free. Only ${totalFreeRoomsCount} rooms are currently free.`));
+                }
+                // Compile allocation list
+                roomIdsToAllocate = [primaryRoomId];
+                const otherFreeRooms = availableRooms.filter((r) => r.id !== primaryRoomId);
+                for (let i = 0; i < requestedRoomsCount - 1; i++) {
+                    if (otherFreeRooms[i]) {
+                        roomIdsToAllocate.push(otherFreeRooms[i].id);
+                    }
+                }
             }
-            const room = await RoomRepository_1.RoomRepository.findById(primaryRoomId);
-            if (!room || (room.status !== 'AVAILABLE' && room.status !== 'ADVANCE_BOOKED')) {
-                return next(new errorHandler_1.AppError(400, 'Selected room is not available.'));
-            }
-            // If the selected room is AVAILABLE, it is already counted in availableRooms.
-            // If it is ADVANCE_BOOKED, we need it plus (requestedRoomsCount - 1) other AVAILABLE rooms.
-            const isSelectedRoomAvailable = room.status === 'AVAILABLE';
-            const neededFreeRooms = isSelectedRoomAvailable ? requestedRoomsCount : requestedRoomsCount - 1;
-            const totalFreeRoomsCount = isSelectedRoomAvailable ? availableRooms.length : availableRooms.length + 1;
-            if (availableRooms.length < neededFreeRooms) {
-                return next(new errorHandler_1.AppError(400, `Not enough rooms are free. Only ${totalFreeRoomsCount} rooms are currently free.`));
-            }
-            // Compile allocation list
-            const roomIdsToAllocate = [primaryRoomId];
-            const otherFreeRooms = availableRooms.filter((r) => r.id !== primaryRoomId);
-            for (let i = 0; i < requestedRoomsCount - 1; i++) {
-                if (otherFreeRooms[i]) {
-                    roomIdsToAllocate.push(otherFreeRooms[i].id);
+            // Verify all allocation rooms are actually valid and available/booked
+            for (const rId of roomIdsToAllocate) {
+                const room = await RoomRepository_1.RoomRepository.findById(rId);
+                if (!room || (room.status !== 'AVAILABLE' && room.status !== 'ADVANCE_BOOKED')) {
+                    return next(new errorHandler_1.AppError(400, `Selected room ${room?.roomNumber || rId} is not available.`));
                 }
             }
             // Build custom checkInTime Date object if provided
@@ -157,7 +170,7 @@ class CheckoutController {
     }
     static async checkInBooking(req, res, next) {
         const { bookingId, numberOfRooms, // Added to ask for number of rooms
-        arrivalDate, arrivalTime, expectedCheckOutDate, numberOfGuests, advancePaid, remainingAmount, paymentMethod, registrationNumber, pricePerNight, } = req.body;
+        roomIds, arrivalDate, arrivalTime, expectedCheckOutDate, numberOfGuests, advancePaid, remainingAmount, paymentMethod, registrationNumber, pricePerNight, } = req.body;
         if (!bookingId) {
             return next(new errorHandler_1.AppError(400, 'Booking ID is required.'));
         }
@@ -179,27 +192,40 @@ class CheckoutController {
                     return next(new errorHandler_1.AppError(400, `Registration number '${registrationNumber}' is already in use.`));
                 }
             }
-            const requestedRoomsCount = Math.max(1, Number(numberOfRooms || 1));
-            const availableRooms = await RoomRepository_1.RoomRepository.getAll({ status: 'AVAILABLE' });
-            const bookingRoom = await RoomRepository_1.RoomRepository.findById(booking.roomId);
-            if (!bookingRoom) {
-                return next(new errorHandler_1.AppError(404, 'Room associated with the booking not found.'));
+            let roomIdsToAllocate = [];
+            if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
+                roomIdsToAllocate = roomIds;
             }
-            if (bookingRoom.status !== 'AVAILABLE' && bookingRoom.status !== 'ADVANCE_BOOKED') {
-                return next(new errorHandler_1.AppError(400, `Room ${bookingRoom.roomNumber} is currently ${bookingRoom.status.toLowerCase().replace('_', ' ')}. Please edit the booking to select a different room first.`));
+            else {
+                const requestedRoomsCount = Math.max(1, Number(numberOfRooms || 1));
+                const availableRooms = await RoomRepository_1.RoomRepository.getAll({ status: 'AVAILABLE' });
+                const bookingRoom = await RoomRepository_1.RoomRepository.findById(booking.roomId);
+                if (!bookingRoom) {
+                    return next(new errorHandler_1.AppError(404, 'Room associated with the booking not found.'));
+                }
+                if (bookingRoom.status !== 'AVAILABLE' && bookingRoom.status !== 'ADVANCE_BOOKED') {
+                    return next(new errorHandler_1.AppError(400, `Room ${bookingRoom.roomNumber} is currently ${bookingRoom.status.toLowerCase().replace('_', ' ')}. Please edit the booking to select a different room first.`));
+                }
+                const isBookingRoomAvailable = bookingRoom.status === 'AVAILABLE';
+                const neededFreeRooms = isBookingRoomAvailable ? requestedRoomsCount : requestedRoomsCount - 1;
+                const totalFreeRoomsCount = isBookingRoomAvailable ? availableRooms.length : availableRooms.length + 1;
+                if (availableRooms.length < neededFreeRooms) {
+                    return next(new errorHandler_1.AppError(400, `Not enough rooms are free. Only ${totalFreeRoomsCount} rooms are currently free.`));
+                }
+                // Compile allocation list
+                roomIdsToAllocate = [booking.roomId];
+                const otherFreeRooms = availableRooms.filter((r) => r.id !== booking.roomId);
+                for (let i = 0; i < requestedRoomsCount - 1; i++) {
+                    if (otherFreeRooms[i]) {
+                        roomIdsToAllocate.push(otherFreeRooms[i].id);
+                    }
+                }
             }
-            const isBookingRoomAvailable = bookingRoom.status === 'AVAILABLE';
-            const neededFreeRooms = isBookingRoomAvailable ? requestedRoomsCount : requestedRoomsCount - 1;
-            const totalFreeRoomsCount = isBookingRoomAvailable ? availableRooms.length : availableRooms.length + 1;
-            if (availableRooms.length < neededFreeRooms) {
-                return next(new errorHandler_1.AppError(400, `Not enough rooms are free. Only ${totalFreeRoomsCount} rooms are currently free.`));
-            }
-            // Compile allocation list
-            const roomIdsToAllocate = [booking.roomId];
-            const otherFreeRooms = availableRooms.filter((r) => r.id !== booking.roomId);
-            for (let i = 0; i < requestedRoomsCount - 1; i++) {
-                if (otherFreeRooms[i]) {
-                    roomIdsToAllocate.push(otherFreeRooms[i].id);
+            // Verify all allocation rooms are actually valid and available/booked
+            for (const rId of roomIdsToAllocate) {
+                const room = await RoomRepository_1.RoomRepository.findById(rId);
+                if (!room || (room.status !== 'AVAILABLE' && room.status !== 'ADVANCE_BOOKED')) {
+                    return next(new errorHandler_1.AppError(400, `Selected room ${room?.roomNumber || rId} is not available.`));
                 }
             }
             // Build custom checkInTime Date object if provided
@@ -273,12 +299,16 @@ class CheckoutController {
                 include: {
                     room: true,
                     customer: true,
+                    extraCharges: true,
                 },
             });
             let totalRoomCharges = 0;
             let totalNights = 0;
             let totalAdvancePaid = 0;
+            let totalExtraCharges = 0;
             const stayDetails = activeStays.map((stay) => {
+                const extraSum = stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0;
+                totalExtraCharges += extraSum;
                 const calc = InvoiceService_1.InvoiceService.calculateStayBill({
                     pricePerNight: stay.pricePerNight,
                     checkInTime: stay.checkInTime,
@@ -298,9 +328,10 @@ class CheckoutController {
                     nights: calc.nights,
                     roomCharges: calc.roomCharges,
                     advancePaid: stay.advancePaid,
+                    extraCharges: stay.extraCharges || [],
                 };
             });
-            const subtotal = totalRoomCharges + additionalCharges - discount;
+            const subtotal = totalRoomCharges + totalExtraCharges - discount;
             const taxAmount = subtotal * taxRate;
             const finalAmount = Math.max(0, subtotal + taxAmount);
             res.status(200).json({
@@ -311,6 +342,7 @@ class CheckoutController {
                     calculations: {
                         nights: totalNights,
                         roomCharges: totalRoomCharges,
+                        additionalCharges: totalExtraCharges,
                         subtotal,
                         taxAmount,
                         finalAmount,
@@ -351,6 +383,7 @@ class CheckoutController {
                 },
                 include: {
                     room: true,
+                    extraCharges: true,
                 },
             });
             // Checkout each active stay in a loop
@@ -358,12 +391,13 @@ class CheckoutController {
             let aggregateAmount = 0;
             for (const stay of activeStays) {
                 const isPrimary = stay.id === checkInId;
+                const extraSum = stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0;
                 // Calculate stay bill for this specific room
                 const roomBill = InvoiceService_1.InvoiceService.calculateStayBill({
                     pricePerNight: stay.pricePerNight,
                     checkInTime: stay.checkInTime,
                     expectedCheckOutDate: checkoutTimeObj,
-                    additionalCharges: isPrimary ? Number(additionalCharges || 0) : 0,
+                    additionalCharges: extraSum,
                     discount: 0,
                     taxRate: Number(taxRate !== undefined ? taxRate : 0.0),
                 });
@@ -371,7 +405,7 @@ class CheckoutController {
                 const checkoutRecord = await CheckoutRepository_1.CheckoutRepository.create({
                     checkInId: stay.id,
                     roomCharges: roomBill.roomCharges,
-                    additionalCharges: isPrimary ? Number(additionalCharges || 0) : 0,
+                    additionalCharges: extraSum,
                     discount: 0,
                     taxAmount: roomBill.taxAmount,
                     finalAmount: roomBill.finalAmount,
@@ -458,6 +492,69 @@ class CheckoutController {
             res.status(200).json({
                 success: true,
                 data: payments,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async addExtraCharge(req, res, next) {
+        const checkInId = req.params.checkInId;
+        const { itemName, amount, quantity } = req.body;
+        try {
+            if (!itemName || amount === undefined) {
+                return next(new errorHandler_1.AppError(400, 'Item name and amount are required.'));
+            }
+            const qty = quantity ? Number(quantity) : 1;
+            const charge = await db_1.default.extraCharge.create({
+                data: {
+                    checkInId,
+                    itemName,
+                    amount: Number(amount),
+                    quantity: qty,
+                },
+            });
+            // Automatically update inventory if matching "Water Bottle" variants (case-insensitive check)
+            try {
+                const normalizedItemName = itemName.trim().toLowerCase();
+                const waterVariants = ['water bottle', 'water bottles', 'water'];
+                if (waterVariants.includes(normalizedItemName)) {
+                    const dbItems = await db_1.default.inventoryItem.findMany();
+                    const matchingItem = dbItems.find((item) => waterVariants.includes(item.name.trim().toLowerCase()));
+                    if (matchingItem) {
+                        await db_1.default.inventoryItem.update({
+                            where: { id: matchingItem.id },
+                            data: {
+                                quantity: {
+                                    decrement: qty,
+                                },
+                            },
+                        });
+                    }
+                }
+            }
+            catch (inventoryError) {
+                console.error('Failed to auto-update inventory:', inventoryError);
+            }
+            res.status(201).json({
+                success: true,
+                data: charge,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async getExtraCharges(req, res, next) {
+        const checkInId = req.params.checkInId;
+        try {
+            const charges = await db_1.default.extraCharge.findMany({
+                where: { checkInId },
+                orderBy: { createdAt: 'desc' },
+            });
+            res.status(200).json({
+                success: true,
+                data: charges,
             });
         }
         catch (error) {

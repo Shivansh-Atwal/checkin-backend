@@ -1,0 +1,13 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const inventoryController_1 = require("../controllers/inventoryController");
+const auth_1 = require("../middleware/auth");
+const constants_1 = require("../config/constants");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate);
+router.get('/', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.DASHBOARD_VIEW), inventoryController_1.InventoryController.getAll);
+router.post('/', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.DASHBOARD_VIEW), inventoryController_1.InventoryController.createOrUpdate);
+router.put('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.DASHBOARD_VIEW), inventoryController_1.InventoryController.update);
+router.delete('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.DASHBOARD_VIEW), inventoryController_1.InventoryController.delete);
+exports.default = router;
