@@ -334,7 +334,7 @@ export class AdminController {
         const diffMs = new Date(checkoutTime).getTime() - new Date(ci.checkInTime).getTime();
         const bednights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 
-        const pricePaid = ci.payments.reduce((sum, p) => sum + p.amount, 0);
+        const roomPrice = ci.pricePerNight;
 
         return {
           id: ci.id,
@@ -349,7 +349,7 @@ export class AdminController {
           state: ci.customer.state || 'N/A',
           nationality: ci.customer.country || 'N/A',
           roomNumber: ci.room.roomNumber,
-          pricePaid,
+          roomPrice,
           numberOfGuests: ci.numberOfGuests,
           bednights,
         };
