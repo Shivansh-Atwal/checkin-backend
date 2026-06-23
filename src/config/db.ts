@@ -1,8 +1,13 @@
 import { PrismaClient } from '@prisma/client';
 import { AsyncLocalStorage } from 'async_hooks';
 
+export interface TenantContext {
+  client: PrismaClient;
+  tenantId: string;
+}
+
 // Storage for request-scoped tenant schema clients
-export const tenantStorage = new AsyncLocalStorage<PrismaClient>();
+export const tenantStorage = new AsyncLocalStorage<TenantContext>();
 
 // Cache for instanced PrismaClients per schema to avoid connection/memory leaks
 const clientsCache: Record<string, PrismaClient> = {};
@@ -51,8 +56,8 @@ clientsCache['public'] = defaultPrisma;
 // Transparent Proxy redirecting all calls to the request-scoped tenant client
 const prismaProxy = new Proxy(defaultPrisma, {
   get(target, prop) {
-    const activeClient = tenantStorage.getStore();
-    const client = activeClient || defaultPrisma;
+    const context = tenantStorage.getStore();
+    const client = context?.client || defaultPrisma;
     return Reflect.get(client, prop);
   },
 });

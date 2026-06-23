@@ -495,7 +495,7 @@ export class AdminController {
             bednights: 0,
           };
         }
-        stateSummary[state].customers += 1;
+        stateSummary[state].customers += ci.numberOfGuests;
         stateSummary[state].bednights += bednights;
       });
       const stateWiseData = Object.values(stateSummary);

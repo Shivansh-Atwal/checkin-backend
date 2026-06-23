@@ -123,6 +123,7 @@ model Booking {
   price             Float     @default(0)
   status            String    // "PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"
   notes             String?
+  registrationNumber String?
   checkInRecord     CheckIn?
   payments          Payment[]
   createdAt         DateTime  @default(now())

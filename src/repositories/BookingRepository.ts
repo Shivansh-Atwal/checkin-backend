@@ -25,6 +25,41 @@ export class BookingRepository {
     });
   }
 
+  static async getNextRegistrationNumber(): Promise<string> {
+    const bookings = await prisma.booking.findMany({
+      where: { registrationNumber: { not: null } },
+      select: { registrationNumber: true }
+    });
+
+    const checkIns = await prisma.checkIn.findMany({
+      where: { registrationNumber: { not: null } },
+      select: { registrationNumber: true }
+    });
+
+    const allRegs = [
+      ...bookings.map(b => b.registrationNumber),
+      ...checkIns.map(c => c.registrationNumber)
+    ].filter(Boolean) as string[];
+
+    let maxNum = 100;
+    let formatPrefix = '';
+
+    for (const reg of allRegs) {
+      const match = reg.match(/^([^\d]*)(\d+)(.*)$/);
+      if (match) {
+        const prefix = match[1];
+        const num = parseInt(match[2], 10);
+        if (num > maxNum) {
+          maxNum = num;
+          formatPrefix = prefix;
+        }
+      }
+    }
+
+    const nextNum = maxNum + 1;
+    return `${formatPrefix}${nextNum}`;
+  }
+
   static async getAll(filters?: { status?: string; search?: string }) {
     const bookingWhereClause: any = {};
     const checkInWhereClause: any = { bookingId: null };
@@ -79,7 +114,7 @@ export class BookingRepository {
 
     const mappedBookings = bookings.map(b => ({
       ...b,
-      registrationNumber: b.checkInRecord?.registrationNumber || null,
+      registrationNumber: b.registrationNumber || b.checkInRecord?.registrationNumber || null,
     }));
 
     const mappedCheckIns = checkIns.map(c => ({
@@ -131,6 +166,7 @@ export class BookingRepository {
     advancePayment: number;
     price: number;
     notes?: string;
+    registrationNumber?: string;
   }) {
     const bookingNumber = `HF-B-${Math.round(Math.random() * 1000000)}`;
     return prisma.$transaction(async (tx) => {
@@ -146,6 +182,7 @@ export class BookingRepository {
           price: data.price,
           status: 'CONFIRMED',
           notes: data.notes || null,
+          registrationNumber: data.registrationNumber || null,
         },
       });
 
@@ -192,6 +229,13 @@ export class BookingRepository {
       country: string;
       pincode: string;
       registrationNumber: string;
+      document: {
+        idType: string;
+        idNumber: string;
+        frontImageUrl?: string;
+        backImageUrl?: string;
+        customerPhotoUrl?: string;
+      };
     }>
   ) {
     return prisma.$transaction(async (tx) => {
@@ -204,7 +248,7 @@ export class BookingRepository {
         // Check if this is a legacy walk-in stay (CheckIn record with bookingId = null)
         const oldCheckIn = await tx.checkIn.findUnique({
           where: { id },
-          include: { customer: true }
+          include: { customer: true, checkoutRecord: true }
         });
         if (!oldCheckIn) throw new Error('Record not found');
 
@@ -233,6 +277,26 @@ export class BookingRepository {
           });
         }
 
+        if (data.document) {
+          const existingDoc = await tx.customerDocument.findFirst({
+            where: { customerId: oldCheckIn.customerId },
+          });
+
+          if (existingDoc) {
+            await tx.customerDocument.update({
+              where: { id: existingDoc.id },
+              data: data.document,
+            });
+          } else {
+            await tx.customerDocument.create({
+              data: {
+                customerId: oldCheckIn.customerId,
+                ...data.document,
+              },
+            });
+          }
+        }
+
         // 2. Validate room status if room is changing
         if (data.roomId && data.roomId !== oldCheckIn.roomId) {
           const activeStay = await tx.checkIn.findFirst({
@@ -253,29 +317,134 @@ export class BookingRepository {
         if (data.advancePayment !== undefined) checkInUpdates.advancePaid = Number(data.advancePayment);
         if (data.registrationNumber !== undefined) checkInUpdates.registrationNumber = data.registrationNumber;
         
-        if (
-          data.price !== undefined ||
-          data.advancePayment !== undefined ||
-          data.checkInDate !== undefined ||
-          data.checkOutDate !== undefined
-        ) {
-          const checkInTime = data.checkInDate ? new Date(data.checkInDate) : oldCheckIn.checkInTime;
-          const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (oldCheckIn.actualCheckOutTime || oldCheckIn.expectedCheckOutDate);
-          
-          const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
-          const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-          
-          const finalPrice = data.price !== undefined ? Number(data.price) : oldCheckIn.pricePerNight;
-          const finalAdvance = data.advancePayment !== undefined ? Number(data.advancePayment) : oldCheckIn.advancePaid;
-          checkInUpdates.pricePerNight = finalPrice;
+        const checkInTime = data.checkInDate ? new Date(data.checkInDate) : oldCheckIn.checkInTime;
+        const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (oldCheckIn.actualCheckOutTime || oldCheckIn.expectedCheckOutDate);
+        
+        const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
+        const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        
+        const finalPrice = data.price !== undefined ? Number(data.price) : oldCheckIn.pricePerNight;
+        const finalAdvance = data.advancePayment !== undefined ? Number(data.advancePayment) : oldCheckIn.advancePaid;
+        
+        checkInUpdates.pricePerNight = finalPrice;
+
+        if (oldCheckIn.status === 'ACTIVE') {
           checkInUpdates.remainingAmount = Math.max(0, (finalPrice * nights) - finalAdvance);
+        } else {
+          checkInUpdates.remainingAmount = 0;
+          if (data.checkOutDate !== undefined) {
+            checkInUpdates.actualCheckOutTime = new Date(data.checkOutDate);
+          }
         }
 
         const updatedCheckIn = await tx.checkIn.update({
           where: { id },
           data: checkInUpdates,
-          include: { customer: true, room: true }
+          include: { customer: { include: { documents: true } }, room: true }
         });
+
+        // If it has a checkoutRecord, update checkout & invoice & full payment
+        if (oldCheckIn.checkoutRecord) {
+          const roomCharges = finalPrice * nights;
+          const additionalCharges = oldCheckIn.checkoutRecord.additionalCharges;
+          const discount = oldCheckIn.checkoutRecord.discount;
+          const taxAmount = oldCheckIn.checkoutRecord.taxAmount;
+          const finalAmount = roomCharges + additionalCharges - discount + taxAmount;
+
+          await tx.checkout.update({
+            where: { id: oldCheckIn.checkoutRecord.id },
+            data: {
+              roomCharges,
+              finalAmount,
+            },
+          });
+
+          await tx.invoice.updateMany({
+            where: { checkoutId: oldCheckIn.checkoutRecord.id },
+            data: {
+              totalAmount: finalAmount,
+            },
+          });
+
+          const fullPayment = await tx.payment.findFirst({
+            where: {
+              checkInId: oldCheckIn.id,
+              paymentType: 'FULL',
+            },
+          });
+
+          if (fullPayment) {
+            const newFullAmount = Math.max(0, finalAmount - finalAdvance);
+            await tx.payment.update({
+              where: { id: fullPayment.id },
+              data: {
+                amount: newFullAmount,
+                paymentDate: checkOutTime,
+              },
+            });
+          } else {
+            const newFullAmount = Math.max(0, finalAmount - finalAdvance);
+            await tx.payment.create({
+              data: {
+                checkInId: oldCheckIn.id,
+                amount: newFullAmount,
+                paymentType: 'FULL',
+                paymentMethod: 'Cash',
+                paymentStatus: 'PAID',
+                notes: 'Final Check-Out Settlement Payment (Restored)',
+                paymentDate: checkOutTime,
+              },
+            });
+          }
+        }
+
+        const walkInWhereClause: any = {
+          paymentType: 'ADVANCE',
+        };
+        if (oldCheckIn.bookingId) {
+          walkInWhereClause.OR = [
+            { checkInId: id },
+            { bookingId: oldCheckIn.bookingId }
+          ];
+        } else {
+          walkInWhereClause.checkInId = id;
+        }
+
+        const existingAdvancePayment = await tx.payment.findFirst({
+          where: walkInWhereClause,
+        });
+
+        const newAdvanceAmount = data.advancePayment !== undefined ? Number(data.advancePayment) : (existingAdvancePayment ? existingAdvancePayment.amount : 0);
+        const newCheckInDate = data.checkInDate ? new Date(data.checkInDate) : (existingAdvancePayment ? existingAdvancePayment.paymentDate : checkInTime);
+
+        if (existingAdvancePayment) {
+          if (newAdvanceAmount <= 0) {
+            await tx.payment.delete({
+              where: { id: existingAdvancePayment.id },
+            });
+          } else {
+            await tx.payment.update({
+              where: { id: existingAdvancePayment.id },
+              data: { 
+                amount: newAdvanceAmount,
+                paymentDate: newCheckInDate,
+              },
+            });
+          }
+        } else if (newAdvanceAmount > 0) {
+          await tx.payment.create({
+            data: {
+              checkInId: id,
+              bookingId: oldCheckIn.bookingId || null,
+              amount: newAdvanceAmount,
+              paymentType: 'ADVANCE',
+              paymentMethod: 'Cash',
+              paymentStatus: 'PAID',
+              notes: 'Advance Booking Payment (Updated)',
+              paymentDate: newCheckInDate,
+            },
+          });
+        }
 
         // Return mapped to Booking schema
         return {
@@ -321,6 +490,26 @@ export class BookingRepository {
         });
       }
 
+      if (data.document) {
+        const existingDoc = await tx.customerDocument.findFirst({
+          where: { customerId: oldBooking.customerId },
+        });
+
+        if (existingDoc) {
+          await tx.customerDocument.update({
+            where: { id: existingDoc.id },
+            data: data.document,
+          });
+        } else {
+          await tx.customerDocument.create({
+            data: {
+              customerId: oldBooking.customerId,
+              ...data.document,
+            },
+          });
+        }
+      }
+
       // 2. Validate room status if room is changing
       if (data.roomId && data.roomId !== oldBooking.roomId) {
         const activeStay = await tx.checkIn.findFirst({
@@ -342,20 +531,65 @@ export class BookingRepository {
       if (data.roomId !== undefined) bookingUpdates.roomId = data.roomId;
       if (data.status !== undefined) bookingUpdates.status = data.status;
       if (data.notes !== undefined) bookingUpdates.notes = data.notes;
+      if (data.registrationNumber !== undefined) bookingUpdates.registrationNumber = data.registrationNumber;
 
       const updated = await tx.booking.update({
         where: { id },
         data: bookingUpdates,
       });
 
-
-
-      // 5. Cascade updates to active CheckIn records if booking is currently checked-in
-      const activeCheckIn = await tx.checkIn.findUnique({
-        where: { bookingId: id },
+      const existingAdvancePayment = await tx.payment.findFirst({
+        where: {
+          bookingId: id,
+          paymentType: 'ADVANCE',
+        },
       });
 
-      if (activeCheckIn && activeCheckIn.status === 'ACTIVE') {
+      const newAdvanceAmount = data.advancePayment !== undefined ? Number(data.advancePayment) : (existingAdvancePayment ? existingAdvancePayment.amount : 0);
+      const newCheckInDate = data.checkInDate ? new Date(data.checkInDate) : (existingAdvancePayment ? existingAdvancePayment.paymentDate : (updated.checkInDate || new Date()));
+
+      if (existingAdvancePayment) {
+        if (newAdvanceAmount <= 0) {
+          await tx.payment.delete({
+            where: { id: existingAdvancePayment.id },
+          });
+        } else {
+          await tx.payment.update({
+            where: { id: existingAdvancePayment.id },
+            data: { 
+              amount: newAdvanceAmount,
+              paymentDate: newCheckInDate,
+            },
+          });
+        }
+      } else if (newAdvanceAmount > 0) {
+        const activeCheckIn = await tx.checkIn.findFirst({
+          where: { bookingId: id },
+        });
+
+        await tx.payment.create({
+          data: {
+            bookingId: id,
+            checkInId: activeCheckIn?.id || null,
+            amount: newAdvanceAmount,
+            paymentType: 'ADVANCE',
+            paymentMethod: 'Cash',
+            paymentStatus: 'PAID',
+            notes: 'Advance Booking Payment (Updated)',
+            paymentDate: newCheckInDate,
+          },
+        });
+      }
+
+
+
+      // 5. Cascade updates to CheckIn and Checkout records if booking has a CheckIn
+      const checkInRecord = await tx.checkIn.findUnique({
+        where: { bookingId: id },
+        include: { checkoutRecord: true },
+      });
+
+      if (checkInRecord) {
         const checkInUpdates: any = {};
         if (data.roomId !== undefined) checkInUpdates.roomId = data.roomId;
         if (data.numberOfGuests !== undefined) checkInUpdates.numberOfGuests = Number(data.numberOfGuests);
@@ -363,36 +597,93 @@ export class BookingRepository {
         if (data.checkOutDate !== undefined) checkInUpdates.expectedCheckOutDate = new Date(data.checkOutDate);
         if (data.advancePayment !== undefined) checkInUpdates.advancePaid = Number(data.advancePayment);
         if (data.registrationNumber !== undefined) checkInUpdates.registrationNumber = data.registrationNumber;
+
+        const checkInTime = data.checkInDate ? new Date(data.checkInDate) : checkInRecord.checkInTime;
+        const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (checkInRecord.actualCheckOutTime || checkInRecord.expectedCheckOutDate);
         
-        if (
-          data.price !== undefined ||
-          data.advancePayment !== undefined ||
-          data.checkInDate !== undefined ||
-          data.checkOutDate !== undefined
-        ) {
-          const checkInTime = data.checkInDate ? new Date(data.checkInDate) : activeCheckIn.checkInTime;
-          const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : activeCheckIn.expectedCheckOutDate;
-          
-          const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
-          const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-          
-          const finalPrice = data.price !== undefined ? Number(data.price) : activeCheckIn.pricePerNight;
-          const finalAdvance = data.advancePayment !== undefined ? Number(data.advancePayment) : activeCheckIn.advancePaid;
-          checkInUpdates.pricePerNight = finalPrice;
+        const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
+        const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        
+        const finalPrice = data.price !== undefined ? Number(data.price) : checkInRecord.pricePerNight;
+        const finalAdvance = data.advancePayment !== undefined ? Number(data.advancePayment) : checkInRecord.advancePaid;
+        
+        checkInUpdates.pricePerNight = finalPrice;
+        
+        if (checkInRecord.status === 'ACTIVE') {
           checkInUpdates.remainingAmount = Math.max(0, (finalPrice * nights) - finalAdvance);
+        } else {
+          checkInUpdates.remainingAmount = 0;
+          if (data.checkOutDate !== undefined) {
+            checkInUpdates.actualCheckOutTime = new Date(data.checkOutDate);
+          }
         }
 
-        if (Object.keys(checkInUpdates).length > 0) {
-          await tx.checkIn.update({
-            where: { id: activeCheckIn.id },
-            data: checkInUpdates,
+        await tx.checkIn.update({
+          where: { id: checkInRecord.id },
+          data: checkInUpdates,
+        });
+
+        // If it has a checkoutRecord (i.e. status is CHECKED_OUT), update checkout & invoice & full payment
+        if (checkInRecord.checkoutRecord) {
+          const roomCharges = finalPrice * nights;
+          const additionalCharges = checkInRecord.checkoutRecord.additionalCharges;
+          const discount = checkInRecord.checkoutRecord.discount;
+          const taxAmount = checkInRecord.checkoutRecord.taxAmount;
+          const finalAmount = roomCharges + additionalCharges - discount + taxAmount;
+
+          await tx.checkout.update({
+            where: { id: checkInRecord.checkoutRecord.id },
+            data: {
+              roomCharges,
+              finalAmount,
+            },
           });
+
+          // Update Invoice if exists
+          await tx.invoice.updateMany({
+            where: { checkoutId: checkInRecord.checkoutRecord.id },
+            data: {
+              totalAmount: finalAmount,
+            },
+          });
+
+          // Update FULL payment record if exists
+          const fullPayment = await tx.payment.findFirst({
+            where: {
+              checkInId: checkInRecord.id,
+              paymentType: 'FULL',
+            },
+          });
+
+          if (fullPayment) {
+            const newFullAmount = Math.max(0, finalAmount - finalAdvance);
+            await tx.payment.update({
+              where: { id: fullPayment.id },
+              data: {
+                amount: newFullAmount,
+                paymentDate: checkOutTime,
+              },
+            });
+          } else {
+            const newFullAmount = Math.max(0, finalAmount - finalAdvance);
+            await tx.payment.create({
+              data: {
+                checkInId: checkInRecord.id,
+                amount: newFullAmount,
+                paymentType: 'FULL',
+                paymentMethod: 'Cash',
+                paymentStatus: 'PAID',
+                notes: 'Final Check-Out Settlement Payment (Restored)',
+                paymentDate: checkOutTime,
+              },
+            });
+          }
         }
       }
 
       return tx.booking.findUnique({
         where: { id },
-        include: { customer: true, room: true },
+        include: { customer: { include: { documents: true } }, room: true },
       });
     });
   }

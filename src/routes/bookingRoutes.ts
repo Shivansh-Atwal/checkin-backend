@@ -8,6 +8,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', checkPermission(PERMISSIONS.BOOKINGS_READ), BookingController.getAll);
+router.get('/next-reg', checkPermission(PERMISSIONS.BOOKINGS_READ), BookingController.getNextReg);
 router.get('/:id', checkPermission(PERMISSIONS.BOOKINGS_READ), BookingController.getById);
 router.post('/', checkPermission(PERMISSIONS.BOOKINGS_CREATE), BookingController.create);
 router.put('/:id', checkPermission(PERMISSIONS.BOOKINGS_UPDATE), BookingController.update);

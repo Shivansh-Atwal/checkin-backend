@@ -48,8 +48,8 @@ clientsCache['public'] = defaultPrisma;
 // Transparent Proxy redirecting all calls to the request-scoped tenant client
 const prismaProxy = new Proxy(defaultPrisma, {
     get(target, prop) {
-        const activeClient = exports.tenantStorage.getStore();
-        const client = activeClient || defaultPrisma;
+        const context = exports.tenantStorage.getStore();
+        const client = context?.client || defaultPrisma;
         return Reflect.get(client, prop);
     },
 });

@@ -7,6 +7,7 @@ const constants_1 = require("../config/constants");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 router.get('/', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.BOOKINGS_READ), bookingController_1.BookingController.getAll);
+router.get('/next-reg', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.BOOKINGS_READ), bookingController_1.BookingController.getNextReg);
 router.get('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.BOOKINGS_READ), bookingController_1.BookingController.getById);
 router.post('/', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.BOOKINGS_CREATE), bookingController_1.BookingController.create);
 router.put('/:id', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.BOOKINGS_UPDATE), bookingController_1.BookingController.update);

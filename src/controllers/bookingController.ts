@@ -5,6 +5,7 @@ import { CustomerRepository } from '../repositories/CustomerRepository';
 import { NotificationService } from '../services/NotificationService';
 import { AuditLogService } from '../services/AuditLogService';
 import { AppError } from '../middleware/errorHandler';
+import { RedisService } from '../services/RedisService';
 
 export class BookingController {
   static async getAll(req: Request, res: Response, next: NextFunction) {
@@ -38,7 +39,7 @@ export class BookingController {
   }
 
   static async create(req: Request, res: Response, next: NextFunction) {
-    const { customerId, mobileNumber, customerName, roomId, roomIds, checkInDate, checkOutDate, numberOfGuests, advancePayment, price, notes } = req.body;
+    const { customerId, mobileNumber, customerName, roomId, roomIds, checkInDate, checkOutDate, numberOfGuests, advancePayment, price, notes, registrationNumber } = req.body;
 
     const targetRoomIds = roomIds && Array.isArray(roomIds) && roomIds.length > 0 ? roomIds : (roomId ? [roomId] : []);
 
@@ -65,6 +66,8 @@ export class BookingController {
         resolvedCustomerId = existingCust.id;
       }
 
+      const baseReg = registrationNumber || `REG-${Math.floor(100000 + Math.random() * 900000)}`;
+
       const createdBookings = [];
       for (let i = 0; i < targetRoomIds.length; i++) {
         const rId = targetRoomIds[i];
@@ -74,6 +77,9 @@ export class BookingController {
         if (!room || room.status !== 'AVAILABLE') {
           return next(new AppError(400, `Room ${room?.roomNumber || rId} is not available for booking.`));
         }
+
+        const roomNumber = room ? room.roomNumber : '';
+        const regNum = targetRoomIds.length > 1 ? `${baseReg}-${roomNumber}` : baseReg;
 
         // 3. Create Booking
         const booking = await BookingRepository.create({
@@ -85,6 +91,7 @@ export class BookingController {
           advancePayment: i === 0 ? Number(advancePayment || 0) : 0,
           price: Number(price),
           notes: i === 0 ? notes : `Part of group booking: ${notes || ''}`,
+          registrationNumber: regNum,
         });
 
         if (!booking) {
@@ -112,6 +119,9 @@ export class BookingController {
         details: { bookingId: primaryBooking.id, bookingNumber: primaryBooking.bookingNumber, roomIds: targetRoomIds },
       });
 
+      // Invalidate dashboard stats
+      await RedisService.invalidateDashboardStats();
+
       res.status(201).json({
         success: true,
         data: primaryBooking,
@@ -133,6 +143,9 @@ export class BookingController {
         ipAddress: req.ip as string,
         details: { bookingId: id, updates: req.body },
       });
+
+      // Invalidate dashboard stats
+      await RedisService.invalidateDashboardStats();
 
       res.status(200).json({
         success: true,
@@ -157,10 +170,25 @@ export class BookingController {
         details: { bookingId: id, status: 'CANCELLED' },
       });
 
+      // Invalidate dashboard stats
+      await RedisService.invalidateDashboardStats();
+
       res.status(200).json({
         success: true,
         message: 'Booking cancelled successfully.',
         data: updated,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getNextReg(req: Request, res: Response, next: NextFunction) {
+    try {
+      const nextReg = await BookingRepository.getNextRegistrationNumber();
+      res.status(200).json({
+        success: true,
+        data: nextReg,
       });
     } catch (error) {
       next(error);

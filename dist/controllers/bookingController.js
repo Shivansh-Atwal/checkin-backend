@@ -7,6 +7,7 @@ const CustomerRepository_1 = require("../repositories/CustomerRepository");
 const NotificationService_1 = require("../services/NotificationService");
 const AuditLogService_1 = require("../services/AuditLogService");
 const errorHandler_1 = require("../middleware/errorHandler");
+const RedisService_1 = require("../services/RedisService");
 class BookingController {
     static async getAll(req, res, next) {
         try {
@@ -39,7 +40,7 @@ class BookingController {
         }
     }
     static async create(req, res, next) {
-        const { customerId, mobileNumber, customerName, roomId, roomIds, checkInDate, checkOutDate, numberOfGuests, advancePayment, price, notes } = req.body;
+        const { customerId, mobileNumber, customerName, roomId, roomIds, checkInDate, checkOutDate, numberOfGuests, advancePayment, price, notes, registrationNumber } = req.body;
         const targetRoomIds = roomIds && Array.isArray(roomIds) && roomIds.length > 0 ? roomIds : (roomId ? [roomId] : []);
         if ((!customerId && (!customerName || !mobileNumber)) || targetRoomIds.length === 0 || !checkInDate || !checkOutDate || !price) {
             return next(new errorHandler_1.AppError(400, 'Required reservation details are missing.'));
@@ -61,6 +62,7 @@ class BookingController {
                 }
                 resolvedCustomerId = existingCust.id;
             }
+            const baseReg = registrationNumber || `REG-${Math.floor(100000 + Math.random() * 900000)}`;
             const createdBookings = [];
             for (let i = 0; i < targetRoomIds.length; i++) {
                 const rId = targetRoomIds[i];
@@ -69,6 +71,8 @@ class BookingController {
                 if (!room || room.status !== 'AVAILABLE') {
                     return next(new errorHandler_1.AppError(400, `Room ${room?.roomNumber || rId} is not available for booking.`));
                 }
+                const roomNumber = room ? room.roomNumber : '';
+                const regNum = targetRoomIds.length > 1 ? `${baseReg}-${roomNumber}` : baseReg;
                 // 3. Create Booking
                 const booking = await BookingRepository_1.BookingRepository.create({
                     customerId: resolvedCustomerId,
@@ -79,6 +83,7 @@ class BookingController {
                     advancePayment: i === 0 ? Number(advancePayment || 0) : 0,
                     price: Number(price),
                     notes: i === 0 ? notes : `Part of group booking: ${notes || ''}`,
+                    registrationNumber: regNum,
                 });
                 if (!booking) {
                     return next(new errorHandler_1.AppError(500, 'Booking transaction failed.'));
@@ -96,6 +101,8 @@ class BookingController {
                 ipAddress: req.ip,
                 details: { bookingId: primaryBooking.id, bookingNumber: primaryBooking.bookingNumber, roomIds: targetRoomIds },
             });
+            // Invalidate dashboard stats
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(201).json({
                 success: true,
                 data: primaryBooking,
@@ -116,6 +123,8 @@ class BookingController {
                 ipAddress: req.ip,
                 details: { bookingId: id, updates: req.body },
             });
+            // Invalidate dashboard stats
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(200).json({
                 success: true,
                 data: updated,
@@ -137,10 +146,24 @@ class BookingController {
                 ipAddress: req.ip,
                 details: { bookingId: id, status: 'CANCELLED' },
             });
+            // Invalidate dashboard stats
+            await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(200).json({
                 success: true,
                 message: 'Booking cancelled successfully.',
                 data: updated,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async getNextReg(req, res, next) {
+        try {
+            const nextReg = await BookingRepository_1.BookingRepository.getNextRegistrationNumber();
+            res.status(200).json({
+                success: true,
+                data: nextReg,
             });
         }
         catch (error) {

@@ -14,7 +14,7 @@ export const tenantMiddleware = (req: Request, res: Response, next: NextFunction
   
   try {
     const client = getPrismaClientForSchema(schemaName);
-    tenantStorage.run(client, () => {
+    tenantStorage.run({ client, tenantId: schemaName }, () => {
       next();
     });
   } catch (err) {

@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { tenantStorage } from '../config/db';
 
 const REDIS_HOST = process.env.REDIS_HOST;
 const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
@@ -46,35 +47,44 @@ if (REDIS_HOST) {
 }
 
 export class RedisService {
+  private static getScopedKey(key: string): string {
+    const store = tenantStorage.getStore();
+    const tenantId = store?.tenantId || 'public';
+    return `${tenantId}:${key}`;
+  }
+
   static async get(key: string): Promise<string | null> {
     if (!redis) return null;
+    const scopedKey = this.getScopedKey(key);
     try {
-      return await redis.get(key);
+      return await redis.get(scopedKey);
     } catch (err: any) {
-      console.warn(`Redis get failed for key "${key}":`, err.message);
+      console.warn(`Redis get failed for key "${scopedKey}":`, err.message);
       return null;
     }
   }
 
   static async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
     if (!redis) return;
+    const scopedKey = this.getScopedKey(key);
     try {
       if (ttlSeconds) {
-        await redis.set(key, value, 'EX', ttlSeconds);
+        await redis.set(scopedKey, value, 'EX', ttlSeconds);
       } else {
-        await redis.set(key, value);
+        await redis.set(scopedKey, value);
       }
     } catch (err: any) {
-      console.warn(`Redis set failed for key "${key}":`, err.message);
+      console.warn(`Redis set failed for key "${scopedKey}":`, err.message);
     }
   }
 
   static async del(key: string): Promise<void> {
     if (!redis) return;
+    const scopedKey = this.getScopedKey(key);
     try {
-      await redis.del(key);
+      await redis.del(scopedKey);
     } catch (err: any) {
-      console.warn(`Redis del failed for key "${key}":`, err.message);
+      console.warn(`Redis del failed for key "${scopedKey}":`, err.message);
     }
   }
 

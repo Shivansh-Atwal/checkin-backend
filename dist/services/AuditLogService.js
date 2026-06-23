@@ -8,11 +8,12 @@ const db_1 = __importDefault(require("../config/db"));
 class AuditLogService {
     static async log({ userId, userName, action, ipAddress, deviceInformation, details, }) {
         try {
-            // Copy details to enrich it with room numbers if needed
+            // Copy details to enrich it with room numbers and customer names if needed
             const detailsCopy = details ? { ...details } : null;
             if (detailsCopy) {
                 const roomIdsToLookup = new Set();
-                const collectRoomIds = (obj) => {
+                const customerIdsToLookup = new Set();
+                const collectIds = (obj) => {
                     if (!obj || typeof obj !== 'object')
                         return;
                     if (obj.roomId && typeof obj.roomId === 'string' && obj.roomId.length === 36) {
@@ -25,15 +26,26 @@ class AuditLogService {
                             }
                         });
                     }
+                    if (obj.customerId && typeof obj.customerId === 'string' && obj.customerId.length === 36) {
+                        customerIdsToLookup.add(obj.customerId);
+                    }
+                    if (obj.customerIds && Array.isArray(obj.customerIds)) {
+                        obj.customerIds.forEach((id) => {
+                            if (typeof id === 'string' && id.length === 36) {
+                                customerIdsToLookup.add(id);
+                            }
+                        });
+                    }
                     for (const key in obj) {
                         if (Object.prototype.hasOwnProperty.call(obj, key)) {
                             if (typeof obj[key] === 'object') {
-                                collectRoomIds(obj[key]);
+                                collectIds(obj[key]);
                             }
                         }
                     }
                 };
-                collectRoomIds(detailsCopy);
+                collectIds(detailsCopy);
+                // Resolve Rooms
                 if (roomIdsToLookup.size > 0) {
                     const rooms = await db_1.default.room.findMany({
                         where: {
@@ -69,6 +81,43 @@ class AuditLogService {
                     }
                     delete detailsCopy.roomId;
                     delete detailsCopy.roomIds;
+                }
+                // Resolve Customers
+                if (customerIdsToLookup.size > 0) {
+                    const customers = await db_1.default.customer.findMany({
+                        where: {
+                            id: { in: Array.from(customerIdsToLookup) }
+                        },
+                        select: {
+                            id: true,
+                            fullName: true
+                        }
+                    });
+                    const customerMap = new Map(customers.map(c => [c.id, c.fullName]));
+                    const rootCustomerNames = [];
+                    if (detailsCopy.customerId && customerMap.has(detailsCopy.customerId)) {
+                        rootCustomerNames.push(customerMap.get(detailsCopy.customerId));
+                    }
+                    if (detailsCopy.customerIds && Array.isArray(detailsCopy.customerIds)) {
+                        detailsCopy.customerIds.forEach((id) => {
+                            if (customerMap.has(id)) {
+                                rootCustomerNames.push(customerMap.get(id));
+                            }
+                        });
+                    }
+                    if (rootCustomerNames.length > 0) {
+                        detailsCopy.customerName = rootCustomerNames.join(', ');
+                    }
+                    if (detailsCopy.updates && typeof detailsCopy.updates === 'object') {
+                        const updatesCopy = { ...detailsCopy.updates };
+                        if (updatesCopy.customerId && customerMap.has(updatesCopy.customerId)) {
+                            updatesCopy.customerName = customerMap.get(updatesCopy.customerId);
+                            delete updatesCopy.customerId;
+                        }
+                        detailsCopy.updates = updatesCopy;
+                    }
+                    delete detailsCopy.customerId;
+                    delete detailsCopy.customerIds;
                 }
             }
             await db_1.default.auditLog.create({
