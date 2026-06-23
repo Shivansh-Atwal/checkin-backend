@@ -1,0 +1,8 @@
+# Environment
+.env
+
+# Dependencies
+node_modules/
+
+# Prisma generated files
+.prisma/
