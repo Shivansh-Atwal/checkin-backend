@@ -265,7 +265,7 @@ class BookingRepository {
                 if (data.advancePayment !== undefined)
                     checkInUpdates.advancePaid = Number(data.advancePayment);
                 if (data.registrationNumber !== undefined)
-                    checkInUpdates.registrationNumber = data.registrationNumber;
+                    checkInUpdates.registrationNumber = data.registrationNumber || null;
                 const checkInTime = data.checkInDate ? new Date(data.checkInDate) : oldCheckIn.checkInTime;
                 const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (oldCheckIn.actualCheckOutTime || oldCheckIn.expectedCheckOutDate);
                 const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
@@ -479,7 +479,7 @@ class BookingRepository {
             if (data.notes !== undefined)
                 bookingUpdates.notes = data.notes;
             if (data.registrationNumber !== undefined)
-                bookingUpdates.registrationNumber = data.registrationNumber;
+                bookingUpdates.registrationNumber = data.registrationNumber || null;
             const updated = await tx.booking.update({
                 where: { id },
                 data: bookingUpdates,
@@ -543,7 +543,7 @@ class BookingRepository {
                 if (data.advancePayment !== undefined)
                     checkInUpdates.advancePaid = Number(data.advancePayment);
                 if (data.registrationNumber !== undefined)
-                    checkInUpdates.registrationNumber = data.registrationNumber;
+                    checkInUpdates.registrationNumber = data.registrationNumber || null;
                 const checkInTime = data.checkInDate ? new Date(data.checkInDate) : checkInRecord.checkInTime;
                 const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (checkInRecord.actualCheckOutTime || checkInRecord.expectedCheckOutDate);
                 const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();

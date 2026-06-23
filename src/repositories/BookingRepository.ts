@@ -315,7 +315,7 @@ export class BookingRepository {
         if (data.checkInDate !== undefined) checkInUpdates.checkInTime = new Date(data.checkInDate);
         if (data.checkOutDate !== undefined) checkInUpdates.expectedCheckOutDate = new Date(data.checkOutDate);
         if (data.advancePayment !== undefined) checkInUpdates.advancePaid = Number(data.advancePayment);
-        if (data.registrationNumber !== undefined) checkInUpdates.registrationNumber = data.registrationNumber;
+        if (data.registrationNumber !== undefined) checkInUpdates.registrationNumber = data.registrationNumber || null;
         
         const checkInTime = data.checkInDate ? new Date(data.checkInDate) : oldCheckIn.checkInTime;
         const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (oldCheckIn.actualCheckOutTime || oldCheckIn.expectedCheckOutDate);
@@ -531,7 +531,7 @@ export class BookingRepository {
       if (data.roomId !== undefined) bookingUpdates.roomId = data.roomId;
       if (data.status !== undefined) bookingUpdates.status = data.status;
       if (data.notes !== undefined) bookingUpdates.notes = data.notes;
-      if (data.registrationNumber !== undefined) bookingUpdates.registrationNumber = data.registrationNumber;
+      if (data.registrationNumber !== undefined) bookingUpdates.registrationNumber = data.registrationNumber || null;
 
       const updated = await tx.booking.update({
         where: { id },
@@ -596,7 +596,7 @@ export class BookingRepository {
         if (data.checkInDate !== undefined) checkInUpdates.checkInTime = new Date(data.checkInDate);
         if (data.checkOutDate !== undefined) checkInUpdates.expectedCheckOutDate = new Date(data.checkOutDate);
         if (data.advancePayment !== undefined) checkInUpdates.advancePaid = Number(data.advancePayment);
-        if (data.registrationNumber !== undefined) checkInUpdates.registrationNumber = data.registrationNumber;
+        if (data.registrationNumber !== undefined) checkInUpdates.registrationNumber = data.registrationNumber || null;
 
         const checkInTime = data.checkInDate ? new Date(data.checkInDate) : checkInRecord.checkInTime;
         const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (checkInRecord.actualCheckOutTime || checkInRecord.expectedCheckOutDate);

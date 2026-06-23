@@ -7,10 +7,20 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import os from 'os';
-import prisma from './config/db';
+import prisma, { disconnectAllClients } from './config/db';
 import apiRouter from './routes/api';
 import { errorHandler } from './middleware/errorHandler';
 import { tenantMiddleware } from './middleware/tenant';
+
+// Graceful shutdown handling for Prisma database connections in development / watch mode
+const handleShutdown = async (signal: string) => {
+  console.log(`\n[Process] Received ${signal}. Shutting down gracefully...`);
+  await disconnectAllClients();
+  process.exit(0);
+};
+
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 const app = express();
 const PORT = process.env.PORT || 5000;
