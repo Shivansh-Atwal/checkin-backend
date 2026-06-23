@@ -20,6 +20,7 @@ router.get('/audit-logs', checkPermission(PERMISSIONS.AUDITLOGS_READ), AdminCont
 // System Metrics
 router.get('/dashboard-stats', checkPermission(PERMISSIONS.DASHBOARD_VIEW), AdminController.getDashboardStats);
 router.get('/reports', checkPermission(PERMISSIONS.REPORTS_READ), AdminController.getReports);
+router.get('/revenue-report', checkPermission(PERMISSIONS.REPORTS_READ), AdminController.getRevenueReport);
 router.get('/permissions', checkPermission(PERMISSIONS.EMPLOYEES_MANAGE), AdminController.getSystemPermissions);
 
 export default router;

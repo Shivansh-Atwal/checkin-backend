@@ -516,6 +516,65 @@ export class AdminController {
     }
   }
 
+  static async getRevenueReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const startDateStr = req.query.startDate as string;
+      const endDateStr = req.query.endDate as string;
+
+      if (!startDateStr || !endDateStr) {
+        return next(new AppError(400, 'Start date and end date are required.'));
+      }
+
+      const start = new Date(`${startDateStr}T00:00:00`);
+      const end = new Date(`${endDateStr}T23:59:59.999`);
+
+      // Collect all booking records for that time period
+      const bookings = await prisma.booking.findMany({
+        where: {
+          checkInDate: {
+            gte: start,
+            lte: end,
+          },
+          status: { not: 'CANCELLED' }
+        },
+        include: {
+          checkInRecord: {
+            include: {
+              checkoutRecord: true
+            }
+          }
+        }
+      });
+
+      let roomRevenue = 0;
+      let additionalItemsRevenue = 0;
+
+      bookings.forEach((booking) => {
+        const diffMs = new Date(booking.checkOutDate).getTime() - new Date(booking.checkInDate).getTime();
+        const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        roomRevenue += (booking.price || 0) * nights;
+
+        if (booking.checkInRecord?.checkoutRecord) {
+          additionalItemsRevenue += booking.checkInRecord.checkoutRecord.additionalCharges || 0;
+        }
+      });
+
+      const totalRevenue = roomRevenue + additionalItemsRevenue;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          totalRevenue,
+          roomRevenue,
+          additionalItemsRevenue,
+          bookingsCount: bookings.length
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getSystemPermissions(req: Request, res: Response, next: NextFunction) {
     try {
       const permissions = await prisma.permission.findMany();
