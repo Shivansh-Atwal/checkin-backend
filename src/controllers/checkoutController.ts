@@ -194,7 +194,7 @@ export class CheckoutController {
         userName: req.user?.fullName,
         action: 'Customer Check-in',
         ipAddress: req.ip as string,
-        details: { checkInId: checkIn.id, roomNumbers: roomIdsToAllocate.length },
+        details: { checkInId: checkIn.id, roomIds: roomIdsToAllocate },
       });
 
       await RedisService.invalidateDashboardStats();
@@ -222,6 +222,12 @@ export class CheckoutController {
       paymentMethod,
       registrationNumber,
       pricePerNight,
+      address,
+      city,
+      state,
+      country,
+      pincode,
+      document,
     } = req.body;
 
     if (!bookingId) {
@@ -232,6 +238,18 @@ export class CheckoutController {
       const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
       if (!booking) {
         return next(new AppError(404, 'Booking not found.'));
+      }
+
+      // Update customer details if provided
+      if (address || city || state || country || pincode || document) {
+        await CustomerRepository.update(booking.customerId, {
+          address: address || undefined,
+          city: city || undefined,
+          state: state || undefined,
+          country: country || undefined,
+          pincode: pincode || undefined,
+          document,
+        });
       }
 
       if (registrationNumber) {
@@ -336,7 +354,7 @@ export class CheckoutController {
         userName: req.user?.fullName,
         action: 'Customer Check-in',
         ipAddress: req.ip as string,
-        details: { checkInId: checkIn.id, bookingId, roomNumbers: roomIdsToAllocate.length },
+        details: { checkInId: checkIn.id, bookingId, roomIds: roomIdsToAllocate },
       });
 
       await RedisService.invalidateDashboardStats();
@@ -551,7 +569,11 @@ export class CheckoutController {
         userName: req.user?.fullName,
         action: 'Payment Collected',
         ipAddress: req.ip as string,
-        details: { checkoutStaysCount: activeStays.length, customerId: checkIn.customerId },
+        details: { 
+          checkoutStaysCount: activeStays.length, 
+          customerId: checkIn.customerId,
+          roomNumbers: activeStays.map(s => s.room.roomNumber).join(', ')
+        },
       });
 
       await RedisService.invalidateDashboardStats();

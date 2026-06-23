@@ -10,7 +10,9 @@ class BookingRepository {
         return db_1.default.booking.findUnique({
             where: { id },
             include: {
-                customer: true,
+                customer: {
+                    include: { documents: true },
+                },
                 room: true,
                 payments: true,
                 checkInRecord: true,

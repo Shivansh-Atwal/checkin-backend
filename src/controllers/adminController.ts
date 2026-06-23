@@ -178,9 +178,134 @@ export class AdminController {
         orderBy: { timestamp: 'desc' },
         take: 100,
       });
+
+      const roomIdsToLookup = new Set<string>();
+      const customerIdsToLookup = new Set<string>();
+
+      const parsedDetailsList = logs.map(log => {
+        if (!log.details) return null;
+        try {
+          return JSON.parse(log.details);
+        } catch {
+          return null;
+        }
+      });
+
+      const collectIds = (obj: any) => {
+        if (!obj || typeof obj !== 'object') return;
+
+        if (obj.roomId && typeof obj.roomId === 'string' && obj.roomId.length === 36) {
+          roomIdsToLookup.add(obj.roomId);
+        }
+        if (obj.roomIds && Array.isArray(obj.roomIds)) {
+          obj.roomIds.forEach((id: any) => {
+            if (typeof id === 'string' && id.length === 36) {
+              roomIdsToLookup.add(id);
+            }
+          });
+        }
+
+        if (obj.customerId && typeof obj.customerId === 'string' && obj.customerId.length === 36) {
+          customerIdsToLookup.add(obj.customerId);
+        }
+        if (obj.customerIds && Array.isArray(obj.customerIds)) {
+          obj.customerIds.forEach((id: any) => {
+            if (typeof id === 'string' && id.length === 36) {
+              customerIdsToLookup.add(id);
+            }
+          });
+        }
+
+        for (const key in obj) {
+          if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            if (typeof obj[key] === 'object') {
+              collectIds(obj[key]);
+            }
+          }
+        }
+      };
+
+      parsedDetailsList.forEach(details => {
+        if (details) collectIds(details);
+      });
+
+      const roomMap = new Map<string, string>();
+      if (roomIdsToLookup.size > 0) {
+        const rooms = await prisma.room.findMany({
+          where: { id: { in: Array.from(roomIdsToLookup) } },
+          select: { id: true, roomNumber: true }
+        });
+        rooms.forEach(r => roomMap.set(r.id, r.roomNumber));
+      }
+
+      const customerMap = new Map<string, string>();
+      if (customerIdsToLookup.size > 0) {
+        const customers = await prisma.customer.findMany({
+          where: { id: { in: Array.from(customerIdsToLookup) } },
+          select: { id: true, fullName: true }
+        });
+        customers.forEach(c => customerMap.set(c.id, c.fullName));
+      }
+
+      const enrichObject = (obj: any) => {
+        if (!obj || typeof obj !== 'object') return;
+
+        if (obj.roomId && roomMap.has(obj.roomId)) {
+          obj.roomNumber = roomMap.get(obj.roomId);
+        }
+        if (obj.roomIds && Array.isArray(obj.roomIds)) {
+          const numbers = obj.roomIds.map((id: string) => roomMap.get(id)).filter(Boolean);
+          if (numbers.length > 0) {
+            obj.roomNumbers = numbers.join(', ');
+          }
+        }
+
+        if (obj.customerId && customerMap.has(obj.customerId)) {
+          obj.customerName = customerMap.get(obj.customerId);
+        }
+        if (obj.customerIds && Array.isArray(obj.customerIds)) {
+          const names = obj.customerIds.map((id: string) => customerMap.get(id)).filter(Boolean);
+          if (names.length > 0) {
+            obj.customerNames = names.join(', ');
+          }
+        }
+
+        if (obj.updates && typeof obj.updates === 'object') {
+          const updatesCopy = { ...obj.updates };
+          if (updatesCopy.roomId && roomMap.has(updatesCopy.roomId)) {
+            updatesCopy.roomNumber = roomMap.get(updatesCopy.roomId)!;
+            delete updatesCopy.roomId;
+          }
+          if (updatesCopy.customerId && customerMap.has(updatesCopy.customerId)) {
+            updatesCopy.customerName = customerMap.get(updatesCopy.customerId)!;
+            delete updatesCopy.customerId;
+          }
+          obj.updates = updatesCopy;
+        }
+
+        for (const key in obj) {
+          if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            if (typeof obj[key] === 'object' && obj[key] !== null && key !== 'updates') {
+              enrichObject(obj[key]);
+            }
+          }
+        }
+      };
+
+      const enrichedLogs = logs.map((log, index) => {
+        const details = parsedDetailsList[index];
+        if (!details) return log;
+
+        enrichObject(details);
+        return {
+          ...log,
+          details: JSON.stringify(details)
+        };
+      });
+
       res.status(200).json({
         success: true,
-        data: logs,
+        data: enrichedLogs,
       });
     } catch (error) {
       next(error);

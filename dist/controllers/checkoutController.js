@@ -156,7 +156,7 @@ class CheckoutController {
                 userName: req.user?.fullName,
                 action: 'Customer Check-in',
                 ipAddress: req.ip,
-                details: { checkInId: checkIn.id, roomNumbers: roomIdsToAllocate.length },
+                details: { checkInId: checkIn.id, roomIds: roomIdsToAllocate },
             });
             await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(201).json({
@@ -170,7 +170,7 @@ class CheckoutController {
     }
     static async checkInBooking(req, res, next) {
         const { bookingId, numberOfRooms, // Added to ask for number of rooms
-        roomIds, arrivalDate, arrivalTime, expectedCheckOutDate, numberOfGuests, advancePaid, remainingAmount, paymentMethod, registrationNumber, pricePerNight, } = req.body;
+        roomIds, arrivalDate, arrivalTime, expectedCheckOutDate, numberOfGuests, advancePaid, remainingAmount, paymentMethod, registrationNumber, pricePerNight, address, city, state, country, pincode, document, } = req.body;
         if (!bookingId) {
             return next(new errorHandler_1.AppError(400, 'Booking ID is required.'));
         }
@@ -178,6 +178,17 @@ class CheckoutController {
             const booking = await db_1.default.booking.findUnique({ where: { id: bookingId } });
             if (!booking) {
                 return next(new errorHandler_1.AppError(404, 'Booking not found.'));
+            }
+            // Update customer details if provided
+            if (address || city || state || country || pincode || document) {
+                await CustomerRepository_1.CustomerRepository.update(booking.customerId, {
+                    address: address || undefined,
+                    city: city || undefined,
+                    state: state || undefined,
+                    country: country || undefined,
+                    pincode: pincode || undefined,
+                    document,
+                });
             }
             if (registrationNumber) {
                 const existingReg = await db_1.default.checkIn.findFirst({
@@ -259,7 +270,7 @@ class CheckoutController {
                 userName: req.user?.fullName,
                 action: 'Customer Check-in',
                 ipAddress: req.ip,
-                details: { checkInId: checkIn.id, bookingId, roomNumbers: roomIdsToAllocate.length },
+                details: { checkInId: checkIn.id, bookingId, roomIds: roomIdsToAllocate },
             });
             await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(201).json({
@@ -438,7 +449,11 @@ class CheckoutController {
                 userName: req.user?.fullName,
                 action: 'Payment Collected',
                 ipAddress: req.ip,
-                details: { checkoutStaysCount: activeStays.length, customerId: checkIn.customerId },
+                details: {
+                    checkoutStaysCount: activeStays.length,
+                    customerId: checkIn.customerId,
+                    roomNumbers: activeStays.map(s => s.room.roomNumber).join(', ')
+                },
             });
             await RedisService_1.RedisService.invalidateDashboardStats();
             res.status(200).json({

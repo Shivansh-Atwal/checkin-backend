@@ -5,7 +5,9 @@ export class BookingRepository {
     return prisma.booking.findUnique({
       where: { id },
       include: {
-        customer: true,
+        customer: {
+          include: { documents: true },
+        },
         room: true,
         payments: true,
         checkInRecord: true,
