@@ -429,7 +429,7 @@ export class AdminController {
 
       // Detailed stay records
       const checkIns = await prisma.checkIn.findMany({
-        orderBy: { checkInTime: 'desc' },
+        orderBy: { createdAt: 'desc' },
         include: {
           customer: {
             include: {
@@ -457,7 +457,8 @@ export class AdminController {
 
         const checkoutTime = ci.actualCheckOutTime || ci.expectedCheckOutDate || new Date();
         const diffMs = new Date(checkoutTime).getTime() - new Date(ci.checkInTime).getTime();
-        const bednights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        const bednights = nights * ci.numberOfGuests;
 
         const roomPrice = ci.pricePerNight;
 
@@ -477,7 +478,24 @@ export class AdminController {
           roomPrice,
           numberOfGuests: ci.numberOfGuests,
           bednights,
+          registrationNumber: ci.registrationNumber || 'N/A',
         };
+      });
+
+      detailedRecords.sort((a, b) => {
+        const getRegNum = (rec: any) => {
+          if (!rec.registrationNumber) return null;
+          const match = rec.registrationNumber.match(/\d+/);
+          return match ? parseInt(match[0], 10) : null;
+        };
+
+        const numA = getRegNum(a);
+        const numB = getRegNum(b);
+
+        if (numA !== null && numB !== null && numA !== numB) {
+          return numB - numA;
+        }
+        return new Date(b.checkInTime).getTime() - new Date(a.checkInTime).getTime();
       });
 
       // State-wise aggregation
@@ -486,7 +504,8 @@ export class AdminController {
         const state = ci.customer.state || 'Unknown';
         const checkoutTime = ci.actualCheckOutTime || ci.expectedCheckOutDate || new Date();
         const diffMs = new Date(checkoutTime).getTime() - new Date(ci.checkInTime).getTime();
-        const bednights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        const bednights = nights * ci.numberOfGuests;
 
         if (!stateSummary[state]) {
           stateSummary[state] = {

@@ -75,34 +75,38 @@ class BookingRepository {
         if (filters?.search) {
             const q = filters.search;
             bookingWhereClause.OR = [
-                { bookingNumber: { contains: q } },
-                { customer: { fullName: { contains: q } } },
+                { bookingNumber: { contains: q, mode: 'insensitive' } },
+                { customer: { fullName: { contains: q, mode: 'insensitive' } } },
                 { customer: { mobileNumber: { contains: q } } },
-                { room: { roomNumber: { contains: q } } },
+                { room: { roomNumber: { contains: q, mode: 'insensitive' } } },
             ];
             checkInWhereClause.OR = [
-                { customer: { fullName: { contains: q } } },
+                { customer: { fullName: { contains: q, mode: 'insensitive' } } },
                 { customer: { mobileNumber: { contains: q } } },
-                { room: { roomNumber: { contains: q } } },
+                { room: { roomNumber: { contains: q, mode: 'insensitive' } } },
             ];
         }
         const [bookings, checkIns] = await Promise.all([
             db_1.default.booking.findMany({
                 where: bookingWhereClause,
                 include: {
-                    customer: true,
+                    customer: {
+                        include: { documents: true }
+                    },
                     room: true,
                     checkInRecord: true,
                 },
-                orderBy: { checkInDate: 'asc' },
+                orderBy: { createdAt: 'desc' },
             }),
             db_1.default.checkIn.findMany({
                 where: checkInWhereClause,
                 include: {
-                    customer: true,
+                    customer: {
+                        include: { documents: true }
+                    },
                     room: true,
                 },
-                orderBy: { checkInTime: 'asc' },
+                orderBy: { createdAt: 'desc' },
             })
         ]);
         const mappedBookings = bookings.map(b => ({
@@ -124,17 +128,31 @@ class BookingRepository {
             customer: c.customer,
             room: c.room,
             registrationNumber: c.registrationNumber,
+            createdAt: c.createdAt,
         }));
         const allRecords = [...mappedBookings, ...mappedCheckIns];
-        allRecords.sort((a, b) => new Date(b.checkInDate).getTime() - new Date(a.checkInDate).getTime());
+        allRecords.sort((a, b) => {
+            const getRegNum = (rec) => {
+                if (!rec.registrationNumber)
+                    return null;
+                const match = rec.registrationNumber.match(/\d+/);
+                return match ? parseInt(match[0], 10) : null;
+            };
+            const numA = getRegNum(a);
+            const numB = getRegNum(b);
+            if (numA !== null && numB !== null && numA !== numB) {
+                return numB - numA;
+            }
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
         return allRecords;
     }
     static async search(query) {
         return db_1.default.booking.findMany({
             where: {
                 OR: [
-                    { bookingNumber: { contains: query } },
-                    { customer: { fullName: { contains: query } } },
+                    { bookingNumber: { contains: query, mode: 'insensitive' } },
+                    { customer: { fullName: { contains: query, mode: 'insensitive' } } },
                     { customer: { mobileNumber: { contains: query } } },
                 ],
             },
