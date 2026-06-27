@@ -47,6 +47,7 @@ export class CheckoutController {
       registrationNumber,
       pricePerNight,
       document, // Extract document info
+      roomPrices,
     } = req.body;
 
     if (!customerId && (!customerName || !mobileNumber)) {
@@ -175,6 +176,7 @@ export class CheckoutController {
         paymentMethod,
         registrationNumber,
         pricePerNight: Number(pricePerNight || 0),
+        roomPrices,
       });
 
       if (!checkIn) {
@@ -228,6 +230,7 @@ export class CheckoutController {
       country,
       pincode,
       document,
+      roomPrices,
     } = req.body;
 
     if (!bookingId) {
@@ -335,6 +338,7 @@ export class CheckoutController {
         paymentMethod,
         registrationNumber,
         pricePerNight: pricePerNight !== undefined ? Number(pricePerNight) : undefined,
+        roomPrices,
       });
 
       if (!checkIn) {
@@ -431,6 +435,7 @@ export class CheckoutController {
           roomCharges: calc.roomCharges,
           advancePaid: stay.advancePaid,
           extraCharges: stay.extraCharges || [],
+          checkInTime: stay.checkInTime,
         };
       });
 
@@ -701,6 +706,57 @@ export class CheckoutController {
       res.status(200).json({
         success: true,
         data: charges,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async deleteExtraCharge(req: Request, res: Response, next: NextFunction) {
+    const checkInId = req.params.checkInId as string;
+    const chargeId = req.params.chargeId as string;
+    try {
+      const charge = await prisma.extraCharge.findUnique({
+        where: { id: chargeId },
+      });
+      if (!charge) {
+        return next(new AppError(404, 'Additional charge item not found.'));
+      }
+
+      // Auto-increment inventory back if we delete a "Water Bottle"
+      try {
+        const normalizedItemName = charge.itemName.trim().toLowerCase();
+        const waterVariants = ['water bottle', 'water bottles', 'water'];
+        if (waterVariants.includes(normalizedItemName)) {
+          const dbItems = await prisma.inventoryItem.findMany();
+          const matchingItem = dbItems.find((item) =>
+            waterVariants.includes(item.name.trim().toLowerCase())
+          );
+
+          if (matchingItem) {
+            await prisma.inventoryItem.update({
+              where: { id: matchingItem.id },
+              data: {
+                quantity: {
+                  increment: charge.quantity,
+                },
+              },
+            });
+          }
+        }
+      } catch (inventoryError) {
+        console.error('Failed to auto-revert inventory:', inventoryError);
+      }
+
+      await prisma.extraCharge.delete({
+        where: { id: chargeId },
+      });
+
+      await RedisService.invalidateDashboardStats();
+
+      res.status(200).json({
+        success: true,
+        message: 'Additional charge removed successfully.',
       });
     } catch (error) {
       next(error);

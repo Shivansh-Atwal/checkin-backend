@@ -80,7 +80,7 @@ class CheckInRepository {
                         expectedCheckOutDate: checkoutTime,
                         advancePaid: i === 0 ? data.advancePaid : 0, // Apply full advance to first room
                         remainingAmount: i === 0 ? data.remainingAmount : 0,
-                        pricePerNight: Number(data.pricePerNight),
+                        pricePerNight: Number(data.roomPrices && data.roomPrices[rId] !== undefined ? data.roomPrices[rId] : data.pricePerNight),
                         status: 'ACTIVE',
                     },
                 });
@@ -138,7 +138,9 @@ class CheckInRepository {
                         expectedCheckOutDate: checkoutTime,
                         advancePaid: i === 0 ? (data.advancePaid + booking.advancePayment) : 0,
                         remainingAmount: i === 0 ? data.remainingAmount : 0,
-                        pricePerNight: Number(data.pricePerNight !== undefined ? data.pricePerNight : booking.price),
+                        pricePerNight: Number(data.roomPrices && data.roomPrices[rId] !== undefined
+                            ? data.roomPrices[rId]
+                            : (data.pricePerNight !== undefined ? data.pricePerNight : booking.price)),
                         status: 'ACTIVE',
                     },
                 });

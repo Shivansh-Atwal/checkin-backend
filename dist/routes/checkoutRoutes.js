@@ -15,6 +15,7 @@ router.get('/checkout/preview/:checkInId', (0, auth_1.checkPermission)(constants
 router.post('/checkout', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKOUTS_CREATE), checkoutController_1.CheckoutController.checkout);
 router.post('/checkin/:checkInId/extra-charges', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.addExtraCharge);
 router.get('/checkin/:checkInId/extra-charges', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.getExtraCharges);
+router.delete('/checkin/:checkInId/extra-charges/:chargeId', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.deleteExtraCharge);
 // Payments
 router.post('/payments', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.PAYMENTS_CREATE), checkoutController_1.CheckoutController.collectPartialPayment);
 router.get('/payments/ledger', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.PAYMENTS_READ), checkoutController_1.CheckoutController.getPaymentLedger);

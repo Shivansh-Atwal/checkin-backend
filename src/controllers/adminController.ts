@@ -472,7 +472,7 @@ export class AdminController {
           completeAddress,
           idCardType,
           idCardNumber,
-          state: ci.customer.state || 'N/A',
+          state: formatStateName(ci.customer.state || 'N/A'),
           nationality: ci.customer.country || 'N/A',
           roomNumber: ci.room.roomNumber,
           roomPrice,
@@ -501,7 +501,7 @@ export class AdminController {
       // State-wise aggregation
       const stateSummary: Record<string, { state: string; customers: number; bednights: number }> = {};
       checkIns.forEach((ci) => {
-        const state = ci.customer.state || 'Unknown';
+        const state = formatStateName(ci.customer.state || 'Unknown');
         const checkoutTime = ci.actualCheckOutTime || ci.expectedCheckOutDate || new Date();
         const diffMs = new Date(checkoutTime).getTime() - new Date(ci.checkInTime).getTime();
         const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
@@ -605,4 +605,76 @@ export class AdminController {
       next(error);
     }
   }
+}
+
+function formatStateName(name: string): string {
+  const trimmed = (name || '').trim();
+  if (!trimmed || trimmed === 'N/A') return 'N/A';
+  if (trimmed.toLowerCase() === 'unknown') return 'Unknown';
+
+  const STATE_MAP: Record<string, string> = {
+    andhrapradesh: 'Andhra Pradesh',
+    ap: 'Andhra Pradesh',
+    arunachalpradesh: 'Arunachal Pradesh',
+    assam: 'Assam',
+    bihar: 'Bihar',
+    chhattisgarh: 'Chhattisgarh',
+    goa: 'Goa',
+    gujarat: 'Gujarat',
+    haryana: 'Haryana',
+    himachalpradesh: 'Himachal Pradesh',
+    hp: 'Himachal Pradesh',
+    jharkhand: 'Jharkhand',
+    karnataka: 'Karnataka',
+    kerala: 'Kerala',
+    madhyapradesh: 'Madhya Pradesh',
+    mp: 'Madhya Pradesh',
+    maharashtra: 'Maharashtra',
+    manipur: 'Manipur',
+    meghalaya: 'Meghalaya',
+    mizoram: 'Mizoram',
+    nagaland: 'Nagaland',
+    odisha: 'Odisha',
+    orissa: 'Odisha',
+    punjab: 'Punjab',
+    rajasthan: 'Rajasthan',
+    sikkim: 'Sikkim',
+    tamilnadu: 'Tamil Nadu',
+    telangana: 'Telangana',
+    tripura: 'Tripura',
+    uttarpradesh: 'Uttar Pradesh',
+    up: 'Uttar Pradesh',
+    uttarakhand: 'Uttarakhand',
+    westbengal: 'West Bengal',
+    delhi: 'Delhi',
+    pondicherry: 'Puducherry',
+    puducherry: 'Puducherry',
+    chandigarh: 'Chandigarh',
+    ladakh: 'Ladakh',
+    jammuandkashmir: 'Jammu and Kashmir',
+    andamanandnicobarislands: 'Andaman and Nicobar Islands',
+    andamanandnicobar: 'Andaman and Nicobar Islands',
+    dadraandnagarhavelianddamananddiu: 'Dadra and Nagar Haveli and Daman and Diu',
+    dadraandnagarhaveli: 'Dadra and Nagar Haveli and Daman and Diu',
+    damananddiu: 'Dadra and Nagar Haveli and Daman and Diu',
+    lakshadweep: 'Lakshadweep'
+  };
+
+  const key = trimmed.toLowerCase().replace(/\s+/g, '');
+  if (STATE_MAP[key]) {
+    return STATE_MAP[key];
+  }
+
+  const standardized = trimmed.replace(/\s+/g, ' ');
+  return standardized
+    .toLowerCase()
+    .split(' ')
+    .map((word, idx) => {
+      const minorWords = ['and', 'of', 'the'];
+      if (minorWords.includes(word) && idx > 0) {
+        return word;
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
 }

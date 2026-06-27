@@ -31,7 +31,7 @@ class CheckoutController {
     static async checkInWalkIn(req, res, next) {
         const { customerId, customerName, mobileNumber, roomId, roomIds, numberOfGuests, numberOfRooms, // Added to ask for number of rooms
         arrivalDate, arrivalTime, expectedCheckOutDate, advancePaid, remainingAmount, paymentMethod, pincode, state, country, address, city, registrationNumber, pricePerNight, document, // Extract document info
-         } = req.body;
+        roomPrices, } = req.body;
         if (!customerId && (!customerName || !mobileNumber)) {
             return next(new errorHandler_1.AppError(400, 'Required guest check-in details are missing.'));
         }
@@ -144,6 +144,7 @@ class CheckoutController {
                 paymentMethod,
                 registrationNumber,
                 pricePerNight: Number(pricePerNight || 0),
+                roomPrices,
             });
             if (!checkIn) {
                 return next(new errorHandler_1.AppError(500, 'Walk-in check-in failed.'));
@@ -170,7 +171,7 @@ class CheckoutController {
     }
     static async checkInBooking(req, res, next) {
         const { bookingId, numberOfRooms, // Added to ask for number of rooms
-        roomIds, arrivalDate, arrivalTime, expectedCheckOutDate, numberOfGuests, advancePaid, remainingAmount, paymentMethod, registrationNumber, pricePerNight, address, city, state, country, pincode, document, } = req.body;
+        roomIds, arrivalDate, arrivalTime, expectedCheckOutDate, numberOfGuests, advancePaid, remainingAmount, paymentMethod, registrationNumber, pricePerNight, address, city, state, country, pincode, document, roomPrices, } = req.body;
         if (!bookingId) {
             return next(new errorHandler_1.AppError(400, 'Booking ID is required.'));
         }
@@ -258,6 +259,7 @@ class CheckoutController {
                 paymentMethod,
                 registrationNumber,
                 pricePerNight: pricePerNight !== undefined ? Number(pricePerNight) : undefined,
+                roomPrices,
             });
             if (!checkIn) {
                 return next(new errorHandler_1.AppError(500, 'Check-in from booking failed.'));
@@ -340,6 +342,7 @@ class CheckoutController {
                     roomCharges: calc.roomCharges,
                     advancePaid: stay.advancePaid,
                     extraCharges: stay.extraCharges || [],
+                    checkInTime: stay.checkInTime,
                 };
             });
             const subtotal = totalRoomCharges + totalExtraCharges - discount;
@@ -570,6 +573,51 @@ class CheckoutController {
             res.status(200).json({
                 success: true,
                 data: charges,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async deleteExtraCharge(req, res, next) {
+        const checkInId = req.params.checkInId;
+        const chargeId = req.params.chargeId;
+        try {
+            const charge = await db_1.default.extraCharge.findUnique({
+                where: { id: chargeId },
+            });
+            if (!charge) {
+                return next(new errorHandler_1.AppError(404, 'Additional charge item not found.'));
+            }
+            // Auto-increment inventory back if we delete a "Water Bottle"
+            try {
+                const normalizedItemName = charge.itemName.trim().toLowerCase();
+                const waterVariants = ['water bottle', 'water bottles', 'water'];
+                if (waterVariants.includes(normalizedItemName)) {
+                    const dbItems = await db_1.default.inventoryItem.findMany();
+                    const matchingItem = dbItems.find((item) => waterVariants.includes(item.name.trim().toLowerCase()));
+                    if (matchingItem) {
+                        await db_1.default.inventoryItem.update({
+                            where: { id: matchingItem.id },
+                            data: {
+                                quantity: {
+                                    increment: charge.quantity,
+                                },
+                            },
+                        });
+                    }
+                }
+            }
+            catch (inventoryError) {
+                console.error('Failed to auto-revert inventory:', inventoryError);
+            }
+            await db_1.default.extraCharge.delete({
+                where: { id: chargeId },
+            });
+            await RedisService_1.RedisService.invalidateDashboardStats();
+            res.status(200).json({
+                success: true,
+                message: 'Additional charge removed successfully.',
             });
         }
         catch (error) {
