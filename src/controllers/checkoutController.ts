@@ -582,7 +582,11 @@ export class CheckoutController {
       let totalExtraCharges = 0;
 
       const stayDetails = activeStays.map((stay) => {
-        const extraSum = stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0;
+        const diffMs = checkoutTimeObj.getTime() - new Date(stay.checkInTime).getTime();
+        const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        const nights = Math.max(1, diffDays);
+        const extraBedCost = Number(stay.extraBedsCount || 0) * Number(stay.extraBedPrice || 0) * nights;
+        const extraSum = (stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0) + extraBedCost;
         totalExtraCharges += extraSum;
 
         const calc = InvoiceService.calculateStayBill({
@@ -604,7 +608,10 @@ export class CheckoutController {
           nights: calc.nights,
           roomCharges: calc.roomCharges,
           advancePaid: stay.advancePaid,
-          extraCharges: stay.extraCharges || [],
+          extraCharges: [
+            ...(stay.extraCharges || []),
+            ...(extraBedCost > 0 ? [{ id: `extra-bed-${stay.id}`, item: 'EXTRA BEDS CHARGES', amount: extraBedCost, createdAt: new Date() }] : [])
+          ],
           checkInTime: stay.checkInTime,
         };
       });
@@ -684,7 +691,11 @@ export class CheckoutController {
 
       for (const stay of activeStays) {
         const isPrimary = stay.id === checkInId;
-        const extraSum = stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0;
+        const diffMs = checkoutTimeObj.getTime() - new Date(stay.checkInTime).getTime();
+        const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        const nights = Math.max(1, diffDays);
+        const extraBedCost = Number(stay.extraBedsCount || 0) * Number(stay.extraBedPrice || 0) * nights;
+        const extraSum = (stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0) + extraBedCost;
         
         // Calculate stay bill for this specific room
         const roomBill = InvoiceService.calculateStayBill({

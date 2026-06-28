@@ -4,18 +4,41 @@ const parseDateInput = (dateInput: any): Date => {
   if (!dateInput) return new Date();
   if (dateInput instanceof Date) return dateInput;
   const str = String(dateInput).trim();
-  // Match "DD-MM-YYYY : HH:MM:00" with flexible spacing
-  const match = str.match(/^(\d{2})-(\d{2})-(\d{4})\s*:\s*(\d{2})\s*:\s*(\d{2})\s*:\s*(\d{2})$/);
-  if (match) {
-    const day = parseInt(match[1], 10);
-    const month = parseInt(match[2], 10) - 1; // 0-indexed
-    const year = parseInt(match[3], 10);
-    const hours = parseInt(match[4], 10);
-    const minutes = parseInt(match[5], 10);
-    const seconds = parseInt(match[6], 10);
-    return new Date(year, month, day, hours, minutes, seconds);
+  
+  if (str.includes('-') && str.includes(':')) {
+    const cleanStr = str.replace(/\s+/g, '');
+    const colonIdx = cleanStr.indexOf(':');
+    if (colonIdx !== -1) {
+      const datePart = cleanStr.substring(0, colonIdx);
+      const timePart = cleanStr.substring(colonIdx + 1);
+      const dateParts = datePart.split('-');
+      const timeParts = timePart.split(':');
+      
+      if (dateParts.length === 3) {
+        let day = 1, month = 0, year = 2026;
+        if (dateParts[0].length === 4) {
+          year = parseInt(dateParts[0], 10);
+          month = parseInt(dateParts[1], 10) - 1;
+          day = parseInt(dateParts[2], 10);
+        } else {
+          day = parseInt(dateParts[0], 10);
+          month = parseInt(dateParts[1], 10) - 1;
+          year = parseInt(dateParts[2], 10);
+        }
+        
+        const hours = timeParts[0] ? parseInt(timeParts[0], 10) : 0;
+        const minutes = timeParts[1] ? parseInt(timeParts[1], 10) : 0;
+        const seconds = timeParts[2] ? parseInt(timeParts[2], 10) : 0;
+        
+        const d = new Date(year, month, day, hours, minutes, seconds);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
   }
-  return new Date(dateInput);
+  
+  const parsed = new Date(dateInput);
+  if (!isNaN(parsed.getTime())) return parsed;
+  return new Date();
 };
 
 export class BookingRepository {

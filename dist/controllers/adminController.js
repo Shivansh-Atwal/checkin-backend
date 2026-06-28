@@ -514,9 +514,17 @@ class AdminController {
             bookings.forEach((booking) => {
                 const diffMs = new Date(booking.checkOutDate).getTime() - new Date(booking.checkInDate).getTime();
                 const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-                roomRevenue += (booking.price || 0) * nights;
                 if (booking.checkInRecord?.checkoutRecord) {
+                    // If checked out, use actual recorded charges
+                    roomRevenue += booking.checkInRecord.checkoutRecord.roomCharges || 0;
                     additionalItemsRevenue += booking.checkInRecord.checkoutRecord.additionalCharges || 0;
+                }
+                else {
+                    // If not checked out, estimate based on booking details
+                    const extraBedsCostPerNight = Number(booking.extraBedsCount || 0) * Number(booking.extraBedPrice || 0);
+                    const roomPriceOnly = Math.max(0, (booking.price || 0) - extraBedsCostPerNight);
+                    roomRevenue += roomPriceOnly * nights;
+                    additionalItemsRevenue += extraBedsCostPerNight * nights;
                 }
             });
             const totalRevenue = roomRevenue + additionalItemsRevenue;
