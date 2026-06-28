@@ -50,15 +50,27 @@ class CustomerRepository {
     }
     static async create(data) {
         const { document, ...customerData } = data;
+        const normalizedCustomer = {
+            ...customerData,
+            fullName: customerData.fullName ? customerData.fullName.toUpperCase() : '',
+            address: customerData.address ? customerData.address.toUpperCase() : undefined,
+            city: customerData.city ? customerData.city.toUpperCase() : undefined,
+            state: customerData.state ? customerData.state.toUpperCase() : undefined,
+            country: customerData.country ? customerData.country.toUpperCase() : undefined,
+            pincode: customerData.pincode ? customerData.pincode.toUpperCase() : undefined,
+            gender: customerData.gender ? customerData.gender.toUpperCase() : undefined,
+        };
         return db_1.default.$transaction(async (tx) => {
             const customer = await tx.customer.create({
-                data: customerData,
+                data: normalizedCustomer,
             });
             if (document) {
                 await tx.customerDocument.create({
                     data: {
                         customerId: customer.id,
                         ...document,
+                        idType: document.idType ? document.idType.toUpperCase() : '',
+                        idNumber: document.idNumber ? document.idNumber.toUpperCase() : '',
                     },
                 });
             }
@@ -70,12 +82,34 @@ class CustomerRepository {
     }
     static async update(id, data) {
         const { document, ...customerData } = data;
+        const normalizedCustomer = { ...customerData };
+        if (customerData.fullName)
+            normalizedCustomer.fullName = customerData.fullName.toUpperCase();
+        if (customerData.address)
+            normalizedCustomer.address = customerData.address.toUpperCase();
+        if (customerData.city)
+            normalizedCustomer.city = customerData.city.toUpperCase();
+        if (customerData.state)
+            normalizedCustomer.state = customerData.state.toUpperCase();
+        if (customerData.country)
+            normalizedCustomer.country = customerData.country.toUpperCase();
+        if (customerData.pincode)
+            normalizedCustomer.pincode = customerData.pincode.toUpperCase();
+        if (customerData.gender)
+            normalizedCustomer.gender = customerData.gender.toUpperCase();
         return db_1.default.$transaction(async (tx) => {
             await tx.customer.update({
                 where: { id },
-                data: customerData,
+                data: normalizedCustomer,
             });
             if (document) {
+                const normalizedDoc = {
+                    ...document,
+                };
+                if (document.idType)
+                    normalizedDoc.idType = document.idType.toUpperCase();
+                if (document.idNumber)
+                    normalizedDoc.idNumber = document.idNumber.toUpperCase();
                 // If document already exists, update it, otherwise create
                 const existingDoc = await tx.customerDocument.findFirst({
                     where: { customerId: id },
@@ -83,14 +117,14 @@ class CustomerRepository {
                 if (existingDoc) {
                     await tx.customerDocument.update({
                         where: { id: existingDoc.id },
-                        data: document,
+                        data: normalizedDoc,
                     });
                 }
                 else {
                     await tx.customerDocument.create({
                         data: {
                             customerId: id,
-                            ...document,
+                            ...normalizedDoc,
                         },
                     });
                 }

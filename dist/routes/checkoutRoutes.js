@@ -10,6 +10,7 @@ router.use(auth_1.authenticate);
 router.get('/checkins', checkoutController_1.CheckoutController.getActiveCheckIns);
 router.post('/checkin/walkin', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.checkInWalkIn);
 router.post('/checkin/booking', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.checkInBooking);
+router.post('/checkin/previous', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.addPreviousStay);
 // Check-outs
 router.get('/checkout/preview/:checkInId', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKOUTS_CREATE), checkoutController_1.CheckoutController.previewBill);
 router.post('/checkout', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKOUTS_CREATE), checkoutController_1.CheckoutController.checkout);

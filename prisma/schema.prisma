@@ -124,6 +124,8 @@ model Booking {
   status            String    // "PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"
   notes             String?
   registrationNumber String?
+  extraBedsCount    Int       @default(0)
+  extraBedPrice     Float     @default(0)
   checkInRecord     CheckIn?
   payments          Payment[]
   createdAt         DateTime  @default(now())
@@ -147,6 +149,8 @@ model CheckIn {
   remainingAmount       Float
   pricePerNight         Float     @default(0)
   status                String    // "ACTIVE", "CHECKED_OUT"
+  extraBedsCount        Int       @default(0)
+  extraBedPrice         Float     @default(0)
   checkoutRecord        Checkout?
   payments              Payment[]
   extraCharges          ExtraCharge[]

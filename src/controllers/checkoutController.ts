@@ -48,6 +48,8 @@ export class CheckoutController {
       pricePerNight,
       document, // Extract document info
       roomPrices,
+      extraBedsCount,
+      extraBedPrice,
     } = req.body;
 
     if (!customerId && (!customerName || !mobileNumber)) {
@@ -177,6 +179,8 @@ export class CheckoutController {
         registrationNumber,
         pricePerNight: Number(pricePerNight || 0),
         roomPrices,
+        extraBedsCount: Number(extraBedsCount || 0),
+        extraBedPrice: Number(extraBedPrice || 0),
       });
 
       if (!checkIn) {
@@ -231,6 +235,8 @@ export class CheckoutController {
       pincode,
       document,
       roomPrices,
+      extraBedsCount,
+      extraBedPrice,
     } = req.body;
 
     if (!bookingId) {
@@ -339,6 +345,8 @@ export class CheckoutController {
         registrationNumber,
         pricePerNight: pricePerNight !== undefined ? Number(pricePerNight) : undefined,
         roomPrices,
+        extraBedsCount: extraBedsCount !== undefined ? Number(extraBedsCount) : undefined,
+        extraBedPrice: extraBedPrice !== undefined ? Number(extraBedPrice) : undefined,
       });
 
       if (!checkIn) {
@@ -359,6 +367,168 @@ export class CheckoutController {
         action: 'Customer Check-in',
         ipAddress: req.ip as string,
         details: { checkInId: checkIn.id, bookingId, roomIds: roomIdsToAllocate },
+      });
+
+      await RedisService.invalidateDashboardStats();
+
+      res.status(201).json({
+        success: true,
+        data: checkIn,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async addPreviousStay(req: Request, res: Response, next: NextFunction) {
+    const {
+      customerId,
+      customerName,
+      mobileNumber,
+      numberOfGuests,
+      arrivalDate,
+      arrivalTime,
+      checkoutDate,
+      checkoutTime,
+      advancePaid,
+      remainingAmount,
+      paymentMethod,
+      pincode,
+      state,
+      country,
+      address,
+      city,
+      registrationNumber,
+      pricePerNight,
+      document,
+      roomIds,
+      roomPrices,
+      extraBedsCount,
+      extraBedPrice,
+    } = req.body;
+
+    if (!customerId && (!customerName || !mobileNumber)) {
+      return next(new AppError(400, 'Required guest check-in details are missing.'));
+    }
+    if (!arrivalDate || !arrivalTime || !checkoutDate || !checkoutTime) {
+      return next(new AppError(400, 'Arrival and Check-out dates and times are required for previous stay records.'));
+    }
+
+    try {
+      let resolvedCustomerId = customerId;
+
+      if (!resolvedCustomerId) {
+        let existingCust = await CustomerRepository.findByMobile(mobileNumber);
+        if (!existingCust) {
+          const newCust = await CustomerRepository.create({
+            fullName: customerName,
+            mobileNumber,
+            address,
+            city,
+            state,
+            country,
+            pincode,
+            document,
+          });
+          if (!newCust) {
+            return next(new AppError(500, 'Customer profile creation failed.'));
+          }
+          existingCust = newCust;
+        } else {
+          await CustomerRepository.update(existingCust.id, {
+            address: address || existingCust.address || undefined,
+            city: city || existingCust.city || undefined,
+            state: state || existingCust.state || undefined,
+            country: country || existingCust.country || undefined,
+            pincode: pincode || existingCust.pincode || undefined,
+            document,
+          });
+        }
+        resolvedCustomerId = existingCust.id;
+      }
+
+      if (registrationNumber) {
+        const existingReg = await prisma.checkIn.findFirst({
+          where: {
+            OR: [
+              { registrationNumber: registrationNumber },
+              { registrationNumber: { startsWith: `${registrationNumber}-` } }
+            ]
+          }
+        });
+        if (existingReg) {
+          return next(new AppError(400, `Registration number '${registrationNumber}' is already in use.`));
+        }
+      }
+
+      let roomIdsToAllocate: string[] = [];
+      if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
+        roomIdsToAllocate = roomIds;
+      } else {
+        return next(new AppError(400, 'At least one room must be allocated for a stay record.'));
+      }
+
+      // Build check-in and check-out times
+      const checkInTimeObj = new Date(`${arrivalDate}T${arrivalTime}`);
+      const checkOutTimeObj = new Date(`${checkoutDate}T${checkoutTime}`);
+
+      if (checkOutTimeObj.getTime() <= checkInTimeObj.getTime()) {
+        return next(new AppError(400, 'Check-out date/time must be after check-in date/time.'));
+      }
+
+      const checkIn = await CheckInRepository.createPreviousStay({
+        customerId: resolvedCustomerId,
+        roomIds: roomIdsToAllocate,
+        numberOfGuests: Number(numberOfGuests || 1),
+        checkInTime: checkInTimeObj,
+        expectedCheckOutDate: checkOutTimeObj,
+        advancePaid: Number(advancePaid || 0),
+        remainingAmount: Number(remainingAmount || 0),
+        paymentMethod,
+        registrationNumber,
+        pricePerNight: Number(pricePerNight || 0),
+        roomPrices,
+        extraBedsCount: Number(extraBedsCount || 0),
+        extraBedPrice: Number(extraBedPrice || 0),
+      });
+
+      if (!checkIn) {
+        return next(new AppError(500, 'Adding previous stay record failed.'));
+      }
+
+      // Generate invoice URL asynchronously and save it to the Checkout records in background
+      const createdCheckIns = await prisma.checkIn.findMany({
+        where: {
+          customerId: resolvedCustomerId,
+          checkInTime: checkInTimeObj,
+          status: 'CHECKED_OUT',
+        },
+        include: {
+          checkoutRecord: true,
+        }
+      });
+
+      for (const ci of createdCheckIns) {
+        if (ci.checkoutRecord) {
+          try {
+            const invoiceUrl = await InvoiceService.generateInvoiceHTML(ci.checkoutRecord.id);
+            await prisma.invoice.update({
+              where: { checkoutId: ci.checkoutRecord.id },
+              data: { pdfUrl: invoiceUrl },
+            });
+          } catch (invErr) {
+            console.error('Failed to generate historical invoice:', invErr);
+          }
+        }
+      }
+
+      // Audit log
+      await AuditLogService.log({
+        userId: req.user?.id,
+        userName: req.user?.fullName,
+        action: 'Add Previous Stay',
+        ipAddress: req.ip as string,
+        details: { checkInId: checkIn.id, roomIds: roomIdsToAllocate },
       });
 
       await RedisService.invalidateDashboardStats();

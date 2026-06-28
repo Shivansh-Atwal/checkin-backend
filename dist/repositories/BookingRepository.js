@@ -5,6 +5,25 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BookingRepository = void 0;
 const db_1 = __importDefault(require("../config/db"));
+const parseDateInput = (dateInput) => {
+    if (!dateInput)
+        return new Date();
+    if (dateInput instanceof Date)
+        return dateInput;
+    const str = String(dateInput).trim();
+    // Match "DD-MM-YYYY : HH:MM:00" with flexible spacing
+    const match = str.match(/^(\d{2})-(\d{2})-(\d{4})\s*:\s*(\d{2})\s*:\s*(\d{2})\s*:\s*(\d{2})$/);
+    if (match) {
+        const day = parseInt(match[1], 10);
+        const month = parseInt(match[2], 10) - 1; // 0-indexed
+        const year = parseInt(match[3], 10);
+        const hours = parseInt(match[4], 10);
+        const minutes = parseInt(match[5], 10);
+        const seconds = parseInt(match[6], 10);
+        return new Date(year, month, day, hours, minutes, seconds);
+    }
+    return new Date(dateInput);
+};
 class BookingRepository {
     static async findById(id) {
         return db_1.default.booking.findUnique({
@@ -120,7 +139,7 @@ class BookingRepository {
             checkOutDate: c.actualCheckOutTime || c.expectedCheckOutDate,
             numberOfGuests: c.numberOfGuests,
             advancePayment: c.advancePaid,
-            price: c.remainingAmount + c.advancePaid,
+            price: c.pricePerNight,
             status: c.status === 'ACTIVE' ? 'CHECKED_IN' : 'CHECKED_OUT',
             notes: 'Walk-in Stay',
             customerId: c.customerId,
@@ -129,6 +148,13 @@ class BookingRepository {
             room: c.room,
             registrationNumber: c.registrationNumber,
             createdAt: c.createdAt,
+            checkInRecord: {
+                id: c.id,
+                checkInTime: c.checkInTime,
+                actualCheckOutTime: c.actualCheckOutTime,
+                registrationNumber: c.registrationNumber,
+                status: c.status,
+            },
         }));
         const allRecords = [...mappedBookings, ...mappedCheckIns];
         allRecords.sort((a, b) => {
@@ -170,14 +196,14 @@ class BookingRepository {
                     bookingNumber,
                     customerId: data.customerId,
                     roomId: data.roomId,
-                    checkInDate: new Date(data.checkInDate),
-                    checkOutDate: new Date(data.checkOutDate),
+                    checkInDate: parseDateInput(data.checkInDate),
+                    checkOutDate: parseDateInput(data.checkOutDate),
                     numberOfGuests: data.numberOfGuests,
                     advancePayment: data.advancePayment,
                     price: data.price,
                     status: 'CONFIRMED',
-                    notes: data.notes || null,
-                    registrationNumber: data.registrationNumber || null,
+                    notes: data.notes ? data.notes.toUpperCase() : null,
+                    registrationNumber: data.registrationNumber ? data.registrationNumber.toUpperCase() : null,
                 },
             });
             // If advance payment is collected, create a payment record
@@ -223,39 +249,46 @@ class BookingRepository {
                     data.pincode !== undefined) {
                     const custUpdates = {};
                     if (data.customerName !== undefined)
-                        custUpdates.fullName = data.customerName;
+                        custUpdates.fullName = data.customerName.toUpperCase();
                     if (data.mobileNumber !== undefined)
                         custUpdates.mobileNumber = data.mobileNumber;
                     if (data.address !== undefined)
-                        custUpdates.address = data.address;
+                        custUpdates.address = data.address ? data.address.toUpperCase() : undefined;
                     if (data.city !== undefined)
-                        custUpdates.city = data.city;
+                        custUpdates.city = data.city ? data.city.toUpperCase() : undefined;
                     if (data.state !== undefined)
-                        custUpdates.state = data.state;
+                        custUpdates.state = data.state ? data.state.toUpperCase() : undefined;
                     if (data.country !== undefined)
-                        custUpdates.country = data.country;
+                        custUpdates.country = data.country ? data.country.toUpperCase() : undefined;
                     if (data.pincode !== undefined)
-                        custUpdates.pincode = data.pincode;
+                        custUpdates.pincode = data.pincode ? data.pincode.toUpperCase() : undefined;
                     await tx.customer.update({
                         where: { id: oldCheckIn.customerId },
                         data: custUpdates,
                     });
                 }
                 if (data.document) {
+                    const normalizedDoc = {
+                        ...data.document,
+                    };
+                    if (data.document.idType)
+                        normalizedDoc.idType = data.document.idType.toUpperCase();
+                    if (data.document.idNumber)
+                        normalizedDoc.idNumber = data.document.idNumber.toUpperCase();
                     const existingDoc = await tx.customerDocument.findFirst({
                         where: { customerId: oldCheckIn.customerId },
                     });
                     if (existingDoc) {
                         await tx.customerDocument.update({
                             where: { id: existingDoc.id },
-                            data: data.document,
+                            data: normalizedDoc,
                         });
                     }
                     else {
                         await tx.customerDocument.create({
                             data: {
                                 customerId: oldCheckIn.customerId,
-                                ...data.document,
+                                ...normalizedDoc,
                             },
                         });
                     }
@@ -277,15 +310,15 @@ class BookingRepository {
                 if (data.numberOfGuests !== undefined)
                     checkInUpdates.numberOfGuests = Number(data.numberOfGuests);
                 if (data.checkInDate !== undefined)
-                    checkInUpdates.checkInTime = new Date(data.checkInDate);
+                    checkInUpdates.checkInTime = parseDateInput(data.checkInDate);
                 if (data.checkOutDate !== undefined)
-                    checkInUpdates.expectedCheckOutDate = new Date(data.checkOutDate);
+                    checkInUpdates.expectedCheckOutDate = parseDateInput(data.checkOutDate);
                 if (data.advancePayment !== undefined)
                     checkInUpdates.advancePaid = Number(data.advancePayment);
                 if (data.registrationNumber !== undefined)
-                    checkInUpdates.registrationNumber = data.registrationNumber || null;
-                const checkInTime = data.checkInDate ? new Date(data.checkInDate) : oldCheckIn.checkInTime;
-                const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (oldCheckIn.actualCheckOutTime || oldCheckIn.expectedCheckOutDate);
+                    checkInUpdates.registrationNumber = data.registrationNumber ? data.registrationNumber.toUpperCase() : null;
+                const checkInTime = data.checkInDate ? parseDateInput(data.checkInDate) : oldCheckIn.checkInTime;
+                const checkOutTime = data.checkOutDate ? parseDateInput(data.checkOutDate) : (oldCheckIn.actualCheckOutTime || oldCheckIn.expectedCheckOutDate);
                 const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
                 const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
                 const finalPrice = data.price !== undefined ? Number(data.price) : oldCheckIn.pricePerNight;
@@ -297,7 +330,7 @@ class BookingRepository {
                 else {
                     checkInUpdates.remainingAmount = 0;
                     if (data.checkOutDate !== undefined) {
-                        checkInUpdates.actualCheckOutTime = new Date(data.checkOutDate);
+                        checkInUpdates.actualCheckOutTime = parseDateInput(data.checkOutDate);
                     }
                 }
                 const updatedCheckIn = await tx.checkIn.update({
@@ -372,7 +405,7 @@ class BookingRepository {
                     where: walkInWhereClause,
                 });
                 const newAdvanceAmount = data.advancePayment !== undefined ? Number(data.advancePayment) : (existingAdvancePayment ? existingAdvancePayment.amount : 0);
-                const newCheckInDate = data.checkInDate ? new Date(data.checkInDate) : (existingAdvancePayment ? existingAdvancePayment.paymentDate : checkInTime);
+                const newCheckInDate = data.checkInDate ? parseDateInput(data.checkInDate) : (existingAdvancePayment ? existingAdvancePayment.paymentDate : checkInTime);
                 if (existingAdvancePayment) {
                     if (newAdvanceAmount <= 0) {
                         await tx.payment.delete({
@@ -411,7 +444,7 @@ class BookingRepository {
                     checkOutDate: updatedCheckIn.actualCheckOutTime || updatedCheckIn.expectedCheckOutDate,
                     numberOfGuests: updatedCheckIn.numberOfGuests,
                     advancePayment: updatedCheckIn.advancePaid,
-                    price: updatedCheckIn.remainingAmount + updatedCheckIn.advancePaid,
+                    price: updatedCheckIn.pricePerNight,
                     status: updatedCheckIn.status === 'ACTIVE' ? 'CHECKED_IN' : 'CHECKED_OUT',
                     notes: 'Walk-in Stay',
                     customerId: updatedCheckIn.customerId,
@@ -431,39 +464,46 @@ class BookingRepository {
                 data.pincode !== undefined) {
                 const custUpdates = {};
                 if (data.customerName !== undefined)
-                    custUpdates.fullName = data.customerName;
+                    custUpdates.fullName = data.customerName.toUpperCase();
                 if (data.mobileNumber !== undefined)
                     custUpdates.mobileNumber = data.mobileNumber;
                 if (data.address !== undefined)
-                    custUpdates.address = data.address;
+                    custUpdates.address = data.address ? data.address.toUpperCase() : undefined;
                 if (data.city !== undefined)
-                    custUpdates.city = data.city;
+                    custUpdates.city = data.city ? data.city.toUpperCase() : undefined;
                 if (data.state !== undefined)
-                    custUpdates.state = data.state;
+                    custUpdates.state = data.state ? data.state.toUpperCase() : undefined;
                 if (data.country !== undefined)
-                    custUpdates.country = data.country;
+                    custUpdates.country = data.country ? data.country.toUpperCase() : undefined;
                 if (data.pincode !== undefined)
-                    custUpdates.pincode = data.pincode;
+                    custUpdates.pincode = data.pincode ? data.pincode.toUpperCase() : undefined;
                 await tx.customer.update({
                     where: { id: oldBooking.customerId },
                     data: custUpdates,
                 });
             }
             if (data.document) {
+                const normalizedDoc = {
+                    ...data.document,
+                };
+                if (data.document.idType)
+                    normalizedDoc.idType = data.document.idType.toUpperCase();
+                if (data.document.idNumber)
+                    normalizedDoc.idNumber = data.document.idNumber.toUpperCase();
                 const existingDoc = await tx.customerDocument.findFirst({
                     where: { customerId: oldBooking.customerId },
                 });
                 if (existingDoc) {
                     await tx.customerDocument.update({
                         where: { id: existingDoc.id },
-                        data: data.document,
+                        data: normalizedDoc,
                     });
                 }
                 else {
                     await tx.customerDocument.create({
                         data: {
                             customerId: oldBooking.customerId,
-                            ...data.document,
+                            ...normalizedDoc,
                         },
                     });
                 }
@@ -481,9 +521,9 @@ class BookingRepository {
             // 3. Perform Booking Update
             const bookingUpdates = {};
             if (data.checkInDate !== undefined)
-                bookingUpdates.checkInDate = new Date(data.checkInDate);
+                bookingUpdates.checkInDate = parseDateInput(data.checkInDate);
             if (data.checkOutDate !== undefined)
-                bookingUpdates.checkOutDate = new Date(data.checkOutDate);
+                bookingUpdates.checkOutDate = parseDateInput(data.checkOutDate);
             if (data.numberOfGuests !== undefined)
                 bookingUpdates.numberOfGuests = Number(data.numberOfGuests);
             if (data.advancePayment !== undefined)
@@ -495,9 +535,9 @@ class BookingRepository {
             if (data.status !== undefined)
                 bookingUpdates.status = data.status;
             if (data.notes !== undefined)
-                bookingUpdates.notes = data.notes;
+                bookingUpdates.notes = data.notes ? data.notes.toUpperCase() : null;
             if (data.registrationNumber !== undefined)
-                bookingUpdates.registrationNumber = data.registrationNumber || null;
+                bookingUpdates.registrationNumber = data.registrationNumber ? data.registrationNumber.toUpperCase() : null;
             const updated = await tx.booking.update({
                 where: { id },
                 data: bookingUpdates,
@@ -509,7 +549,7 @@ class BookingRepository {
                 },
             });
             const newAdvanceAmount = data.advancePayment !== undefined ? Number(data.advancePayment) : (existingAdvancePayment ? existingAdvancePayment.amount : 0);
-            const newCheckInDate = data.checkInDate ? new Date(data.checkInDate) : (existingAdvancePayment ? existingAdvancePayment.paymentDate : (updated.checkInDate || new Date()));
+            const newCheckInDate = data.checkInDate ? parseDateInput(data.checkInDate) : (existingAdvancePayment ? existingAdvancePayment.paymentDate : (updated.checkInDate || new Date()));
             if (existingAdvancePayment) {
                 if (newAdvanceAmount <= 0) {
                     await tx.payment.delete({
@@ -555,15 +595,15 @@ class BookingRepository {
                 if (data.numberOfGuests !== undefined)
                     checkInUpdates.numberOfGuests = Number(data.numberOfGuests);
                 if (data.checkInDate !== undefined)
-                    checkInUpdates.checkInTime = new Date(data.checkInDate);
+                    checkInUpdates.checkInTime = parseDateInput(data.checkInDate);
                 if (data.checkOutDate !== undefined)
-                    checkInUpdates.expectedCheckOutDate = new Date(data.checkOutDate);
+                    checkInUpdates.expectedCheckOutDate = parseDateInput(data.checkOutDate);
                 if (data.advancePayment !== undefined)
                     checkInUpdates.advancePaid = Number(data.advancePayment);
                 if (data.registrationNumber !== undefined)
                     checkInUpdates.registrationNumber = data.registrationNumber || null;
-                const checkInTime = data.checkInDate ? new Date(data.checkInDate) : checkInRecord.checkInTime;
-                const checkOutTime = data.checkOutDate ? new Date(data.checkOutDate) : (checkInRecord.actualCheckOutTime || checkInRecord.expectedCheckOutDate);
+                const checkInTime = data.checkInDate ? parseDateInput(data.checkInDate) : checkInRecord.checkInTime;
+                const checkOutTime = data.checkOutDate ? parseDateInput(data.checkOutDate) : (checkInRecord.actualCheckOutTime || checkInRecord.expectedCheckOutDate);
                 const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
                 const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
                 const finalPrice = data.price !== undefined ? Number(data.price) : checkInRecord.pricePerNight;
@@ -575,7 +615,7 @@ class BookingRepository {
                 else {
                     checkInUpdates.remainingAmount = 0;
                     if (data.checkOutDate !== undefined) {
-                        checkInUpdates.actualCheckOutTime = new Date(data.checkOutDate);
+                        checkInUpdates.actualCheckOutTime = parseDateInput(data.checkOutDate);
                     }
                 }
                 await tx.checkIn.update({
