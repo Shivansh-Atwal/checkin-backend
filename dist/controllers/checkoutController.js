@@ -127,7 +127,10 @@ class CheckoutController {
             }
             // Build custom checkInTime Date object if provided
             let customCheckInTime = undefined;
-            if (arrivalDate && arrivalTime) {
+            if (req.body.checkInTime) {
+                customCheckInTime = new Date(req.body.checkInTime);
+            }
+            else if (arrivalDate && arrivalTime) {
                 customCheckInTime = new Date(`${arrivalDate}T${arrivalTime}`);
             }
             else if (arrivalDate) {
@@ -244,7 +247,10 @@ class CheckoutController {
             }
             // Build custom checkInTime Date object if provided
             let customCheckInTime = undefined;
-            if (arrivalDate && arrivalTime) {
+            if (req.body.checkInTime) {
+                customCheckInTime = new Date(req.body.checkInTime);
+            }
+            else if (arrivalDate && arrivalTime) {
                 customCheckInTime = new Date(`${arrivalDate}T${arrivalTime}`);
             }
             else if (arrivalDate) {
@@ -428,7 +434,10 @@ class CheckoutController {
             const checkoutDate = req.query.checkoutDate;
             const checkoutTime = req.query.checkoutTime;
             let checkoutTimeObj = new Date();
-            if (checkoutDate && checkoutTime) {
+            if (req.query.checkoutTimeISO) {
+                checkoutTimeObj = new Date(req.query.checkoutTimeISO);
+            }
+            else if (checkoutDate && checkoutTime) {
                 checkoutTimeObj = new Date(`${checkoutDate}T${checkoutTime}`);
             }
             else if (checkoutDate) {
@@ -521,7 +530,10 @@ class CheckoutController {
                 return next(new errorHandler_1.AppError(400, 'Stay record is not active or already checked out.'));
             }
             let checkoutTimeObj = new Date();
-            if (checkoutDate && checkoutTime) {
+            if (req.body.checkoutTimeISO) {
+                checkoutTimeObj = new Date(req.body.checkoutTimeISO);
+            }
+            else if (checkoutDate && checkoutTime) {
                 checkoutTimeObj = new Date(`${checkoutDate}T${checkoutTime}`);
             }
             else if (checkoutDate) {

@@ -6,3 +6,6 @@ node_modules/
 
 # Prisma generated files
 .prisma/
+
+# Uploads
+uploads/

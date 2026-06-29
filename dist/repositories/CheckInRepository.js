@@ -39,7 +39,10 @@ class CheckInRepository {
         });
     }
     static async createWalkIn(data) {
-        const arrivalTime = data.checkInTime ? new Date(data.checkInTime) : new Date();
+        console.log("Received:", data.checkInTime);
+        console.log("Type:", typeof data.checkInTime);
+        console.log("Date object:", data.checkInTime);
+        const arrivalTime = data.checkInTime || new Date();
         const checkoutTime = data.expectedCheckOutDate
             ? new Date(data.expectedCheckOutDate)
             : new Date(arrivalTime.getTime() + 24 * 60 * 60 * 1000); // Default +1 day

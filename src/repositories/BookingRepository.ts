@@ -5,6 +5,12 @@ const parseDateInput = (dateInput: any): Date => {
   if (dateInput instanceof Date) return dateInput;
   const str = String(dateInput).trim();
 
+  // Try standard ISO parsing first
+  if (str.includes('T') || str.endsWith('Z')) {
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+
   if (str.includes('-') && str.includes(':')) {
     const cleanStr = str.replace(/\s+/g, '');
     const colonIdx = cleanStr.indexOf(':');

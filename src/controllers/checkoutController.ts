@@ -161,7 +161,9 @@ export class CheckoutController {
 
       // Build custom checkInTime Date object if provided
       let customCheckInTime: Date | undefined = undefined;
-      if (arrivalDate && arrivalTime) {
+      if (req.body.checkInTime) {
+        customCheckInTime = new Date(req.body.checkInTime);
+      } else if (arrivalDate && arrivalTime) {
         customCheckInTime = new Date(`${arrivalDate}T${arrivalTime}`);
       } else if (arrivalDate) {
         customCheckInTime = new Date(arrivalDate);
@@ -327,7 +329,9 @@ export class CheckoutController {
 
       // Build custom checkInTime Date object if provided
       let customCheckInTime: Date | undefined = undefined;
-      if (arrivalDate && arrivalTime) {
+      if (req.body.checkInTime) {
+        customCheckInTime = new Date(req.body.checkInTime);
+      } else if (arrivalDate && arrivalTime) {
         customCheckInTime = new Date(`${arrivalDate}T${arrivalTime}`);
       } else if (arrivalDate) {
         customCheckInTime = new Date(arrivalDate);
@@ -557,7 +561,9 @@ export class CheckoutController {
       const checkoutDate = req.query.checkoutDate as string;
       const checkoutTime = req.query.checkoutTime as string;
       let checkoutTimeObj = new Date();
-      if (checkoutDate && checkoutTime) {
+      if (req.query.checkoutTimeISO) {
+        checkoutTimeObj = new Date(req.query.checkoutTimeISO as string);
+      } else if (checkoutDate && checkoutTime) {
         checkoutTimeObj = new Date(`${checkoutDate}T${checkoutTime}`);
       } else if (checkoutDate) {
         checkoutTimeObj = new Date(checkoutDate);
@@ -667,7 +673,9 @@ export class CheckoutController {
       }
 
       let checkoutTimeObj = new Date();
-      if (checkoutDate && checkoutTime) {
+      if (req.body.checkoutTimeISO) {
+        checkoutTimeObj = new Date(req.body.checkoutTimeISO);
+      } else if (checkoutDate && checkoutTime) {
         checkoutTimeObj = new Date(`${checkoutDate}T${checkoutTime}`);
       } else if (checkoutDate) {
         checkoutTimeObj = new Date(checkoutDate);
