@@ -78,6 +78,9 @@ class CustomerRepository {
                 where: { id: customer.id },
                 include: { documents: true },
             });
+        }, {
+            timeout: 30000,
+            maxWait: 10000,
         });
     }
     static async update(id, data) {

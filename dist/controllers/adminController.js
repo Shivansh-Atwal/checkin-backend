@@ -492,14 +492,19 @@ class AdminController {
             }
             const start = new Date(`${startDateStr}T00:00:00`);
             const end = new Date(`${endDateStr}T23:59:59.999`);
-            // Collect all booking records for that time period
+            // Collect all booking records for that time period that have checkout records
             const bookings = await db_1.default.booking.findMany({
                 where: {
                     checkInDate: {
                         gte: start,
                         lte: end,
                     },
-                    status: { not: 'CANCELLED' }
+                    status: { not: 'CANCELLED' },
+                    checkInRecord: {
+                        checkoutRecord: {
+                            isNot: null
+                        }
+                    }
                 },
                 include: {
                     checkInRecord: {
@@ -511,20 +516,13 @@ class AdminController {
             });
             let roomRevenue = 0;
             let additionalItemsRevenue = 0;
-            bookings.forEach((booking) => {
-                const diffMs = new Date(booking.checkOutDate).getTime() - new Date(booking.checkInDate).getTime();
-                const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+            // Extra safeguard filter in JS/TS
+            const checkedOutBookings = bookings.filter((booking) => booking.checkInRecord?.checkoutRecord);
+            checkedOutBookings.forEach((booking) => {
                 if (booking.checkInRecord?.checkoutRecord) {
                     // If checked out, use actual recorded charges
                     roomRevenue += booking.checkInRecord.checkoutRecord.roomCharges || 0;
                     additionalItemsRevenue += booking.checkInRecord.checkoutRecord.additionalCharges || 0;
-                }
-                else {
-                    // If not checked out, estimate based on booking details
-                    const extraBedsCostPerNight = Number(booking.extraBedsCount || 0) * Number(booking.extraBedPrice || 0);
-                    const roomPriceOnly = Math.max(0, (booking.price || 0) - extraBedsCostPerNight);
-                    roomRevenue += roomPriceOnly * nights;
-                    additionalItemsRevenue += extraBedsCostPerNight * nights;
                 }
             });
             const totalRevenue = roomRevenue + additionalItemsRevenue;
@@ -534,7 +532,7 @@ class AdminController {
                     totalRevenue,
                     roomRevenue,
                     additionalItemsRevenue,
-                    bookingsCount: bookings.length
+                    bookingsCount: checkedOutBookings.length
                 }
             });
         }

@@ -88,6 +88,10 @@ export class CheckoutRepository {
           },
         },
       });
-    });
+    },
+      {
+        timeout: 30000,
+        maxWait: 10000,
+      });
   }
 }

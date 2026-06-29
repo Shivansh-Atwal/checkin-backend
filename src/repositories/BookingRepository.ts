@@ -4,7 +4,7 @@ const parseDateInput = (dateInput: any): Date => {
   if (!dateInput) return new Date();
   if (dateInput instanceof Date) return dateInput;
   const str = String(dateInput).trim();
-  
+
   if (str.includes('-') && str.includes(':')) {
     const cleanStr = str.replace(/\s+/g, '');
     const colonIdx = cleanStr.indexOf(':');
@@ -13,7 +13,7 @@ const parseDateInput = (dateInput: any): Date => {
       const timePart = cleanStr.substring(colonIdx + 1);
       const dateParts = datePart.split('-');
       const timeParts = timePart.split(':');
-      
+
       if (dateParts.length === 3) {
         let day = 1, month = 0, year = 2026;
         if (dateParts[0].length === 4) {
@@ -25,17 +25,17 @@ const parseDateInput = (dateInput: any): Date => {
           month = parseInt(dateParts[1], 10) - 1;
           year = parseInt(dateParts[2], 10);
         }
-        
+
         const hours = timeParts[0] ? parseInt(timeParts[0], 10) : 0;
         const minutes = timeParts[1] ? parseInt(timeParts[1], 10) : 0;
         const seconds = timeParts[2] ? parseInt(timeParts[2], 10) : 0;
-        
+
         const d = new Date(year, month, day, hours, minutes, seconds);
         if (!isNaN(d.getTime())) return d;
       }
     }
   }
-  
+
   const parsed = new Date(dateInput);
   if (!isNaN(parsed.getTime())) return parsed;
   return new Date();
@@ -107,7 +107,7 @@ export class BookingRepository {
 
     if (filters?.status) {
       bookingWhereClause.status = filters.status;
-      
+
       if (filters.status === 'CHECKED_IN') {
         checkInWhereClause.status = 'ACTIVE';
       } else if (filters.status === 'CHECKED_OUT') {
@@ -273,7 +273,11 @@ export class BookingRepository {
         where: { id: booking.id },
         include: { customer: true, room: true },
       });
-    });
+    },
+      {
+        timeout: 30000,
+        maxWait: 10000,
+      });
   }
 
   static async update(
@@ -389,16 +393,16 @@ export class BookingRepository {
         if (data.checkOutDate !== undefined) checkInUpdates.expectedCheckOutDate = parseDateInput(data.checkOutDate);
         if (data.advancePayment !== undefined) checkInUpdates.advancePaid = Number(data.advancePayment);
         if (data.registrationNumber !== undefined) checkInUpdates.registrationNumber = data.registrationNumber ? data.registrationNumber.toUpperCase() : null;
-        
+
         const checkInTime = data.checkInDate ? parseDateInput(data.checkInDate) : oldCheckIn.checkInTime;
         const checkOutTime = data.checkOutDate ? parseDateInput(data.checkOutDate) : (oldCheckIn.actualCheckOutTime || oldCheckIn.expectedCheckOutDate);
-        
+
         const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
         const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-        
+
         const finalPrice = data.price !== undefined ? Number(data.price) : oldCheckIn.pricePerNight;
         const finalAdvance = data.advancePayment !== undefined ? Number(data.advancePayment) : oldCheckIn.advancePaid;
-        
+
         checkInUpdates.pricePerNight = finalPrice;
 
         if (oldCheckIn.status === 'ACTIVE') {
@@ -498,7 +502,7 @@ export class BookingRepository {
           } else {
             await tx.payment.update({
               where: { id: existingAdvancePayment.id },
-              data: { 
+              data: {
                 amount: newAdvanceAmount,
                 paymentDate: newCheckInDate,
               },
@@ -635,7 +639,7 @@ export class BookingRepository {
         } else {
           await tx.payment.update({
             where: { id: existingAdvancePayment.id },
-            data: { 
+            data: {
               amount: newAdvanceAmount,
               paymentDate: newCheckInDate,
             },
@@ -679,15 +683,15 @@ export class BookingRepository {
 
         const checkInTime = data.checkInDate ? parseDateInput(data.checkInDate) : checkInRecord.checkInTime;
         const checkOutTime = data.checkOutDate ? parseDateInput(data.checkOutDate) : (checkInRecord.actualCheckOutTime || checkInRecord.expectedCheckOutDate);
-        
+
         const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
         const nights = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-        
+
         const finalPrice = data.price !== undefined ? Number(data.price) : checkInRecord.pricePerNight;
         const finalAdvance = data.advancePayment !== undefined ? Number(data.advancePayment) : checkInRecord.advancePaid;
-        
+
         checkInUpdates.pricePerNight = finalPrice;
-        
+
         if (checkInRecord.status === 'ACTIVE') {
           checkInUpdates.remainingAmount = Math.max(0, (finalPrice * nights) - finalAdvance);
         } else {
@@ -764,6 +768,10 @@ export class BookingRepository {
         where: { id },
         include: { customer: { include: { documents: true } }, room: true },
       });
-    });
+    },
+      {
+        timeout: 30000,
+        maxWait: 10000,
+      });
   }
 }

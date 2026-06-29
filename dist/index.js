@@ -43,7 +43,6 @@ const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const morgan_1 = __importDefault(require("morgan"));
 const path_1 = __importDefault(require("path"));
-const os_1 = __importDefault(require("os"));
 const db_1 = __importStar(require("./config/db"));
 const api_1 = __importDefault(require("./routes/api"));
 const errorHandler_1 = require("./middleware/errorHandler");
@@ -99,73 +98,20 @@ app.get('/health', (req, res) => {
 // Global Error Handler
 app.use(errorHandler_1.errorHandler);
 // Start Server
-app.listen(PORT, async () => {
-    // Parsing the database URL for cleaner log output
-    let dbHost = 'Unknown';
-    let dbName = 'defaultdb';
+async function start() {
     try {
-        const dbUrl = process.env.DATABASE_URL;
-        if (dbUrl) {
-            const parsedUrl = new URL(dbUrl);
-            dbHost = parsedUrl.hostname;
-            dbName = parsedUrl.pathname.replace(/^\//, '') || 'defaultdb';
-        }
-    }
-    catch (e) {
-        const match = process.env.DATABASE_URL?.match(/@([^:/]+)(?::\d+)?\/([^?]+)/);
-        if (match) {
-            dbHost = match[1];
-            dbName = match[2];
-        }
-    }
-    // Get network IP address for local mobile app testing
-    let networkAddress = '';
-    try {
-        const interfaces = os_1.default.networkInterfaces();
-        for (const name of Object.keys(interfaces)) {
-            const netInterface = interfaces[name];
-            if (netInterface) {
-                for (const net of netInterface) {
-                    if (net.family === 'IPv4' && !net.internal) {
-                        networkAddress = `http://${net.address}:${PORT}`;
-                        break;
-                    }
-                }
-            }
-            if (networkAddress)
-                break;
-        }
-    }
-    catch (e) {
-        // Ignore OS error
-    }
-    console.log(`\x1b[36m%s\x1b[0m`, `  __  __   _       _  __ _              `);
-    console.log(`\x1b[36m%s\x1b[0m`, ` |  \\/  | | |     | |/ /| |             `);
-    console.log(`\x1b[36m%s\x1b[0m`, ` | \\  / | | |__   | ' / | |  ___ __  __ `);
-    console.log(`\x1b[36m%s\x1b[0m`, ` | |\\/| | | '_ \\  |  <  | | / _ \\\\ \\/ / `);
-    console.log(`\x1b[36m%s\x1b[0m`, ` | |  | | | |_) | | . \\ | || (_) |>  <  `);
-    console.log(`\x1b[36m%s\x1b[0m`, ` |_|  |_| |_.__/  |_|\\_\\|_| \\___//_/\\_\\ `);
-    console.log(`\x1b[36m%s\x1b[0m`, `  HOTELFLOW - PREMIER HOTEL MANAGEMENT  `);
-    console.log(`\x1b[90m%s\x1b[0m`, `────────────────────────────────────────────────`);
-    console.log(`\x1b[32m✔\x1b[0m REST API Server started successfully`);
-    console.log(`\x1b[34m➜\x1b[0m Local Address:      \x1b[1m\x1b[37mhttp://localhost:${PORT}\x1b[0m`);
-    if (networkAddress) {
-        console.log(`\x1b[34m➜\x1b[0m Network Address:    \x1b[1m\x1b[37m${networkAddress}\x1b[0m`);
-    }
-    console.log(`\x1b[34m➜\x1b[0m Environment:        \x1b[33m${process.env.NODE_ENV || 'development'}\x1b[0m`);
-    console.log(`\x1b[34m➜\x1b[0m Database Engine:   \x1b[35mPostgreSQL\x1b[0m`);
-    console.log(`\x1b[34m➜\x1b[0m Database Host:     \x1b[90m${dbHost}\x1b[0m`);
-    console.log(`\x1b[34m➜\x1b[0m Database Name:     \x1b[90m${dbName}\x1b[0m`);
-    console.log(`\x1b[90m%s\x1b[0m`, `────────────────────────────────────────────────`);
-    console.log(`\x1b[33m⚡ Connecting to Database...\x1b[0m`);
-    try {
+        console.log("Connecting to database...");
         await db_1.default.$connect();
-        console.log(`\x1b[32m✔ Database connection established successfully.\x1b[0m`);
+        console.log("Database connected");
+        app.listen(PORT, () => {
+            console.log(`Server running on ${PORT}`);
+        });
     }
-    catch (error) {
-        console.error(`\x1b[31m✘ Failed to connect to the database:\x1b[0m`, error);
+    catch (err) {
+        console.error(err);
+        process.exit(1);
     }
-    console.log(`\x1b[90m%s\x1b[0m`, `────────────────────────────────────────────────`);
-});
+}
+start();
 exports.default = app;
 // Exporting for potential test integration

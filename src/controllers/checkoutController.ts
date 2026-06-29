@@ -696,7 +696,7 @@ export class CheckoutController {
         const nights = Math.max(1, diffDays);
         const extraBedCost = Number(stay.extraBedsCount || 0) * Number(stay.extraBedPrice || 0) * nights;
         const extraSum = (stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0) + extraBedCost;
-        
+
         // Calculate stay bill for this specific room
         const roomBill = InvoiceService.calculateStayBill({
           pricePerNight: stay.pricePerNight,
@@ -755,8 +755,8 @@ export class CheckoutController {
         userName: req.user?.fullName,
         action: 'Payment Collected',
         ipAddress: req.ip as string,
-        details: { 
-          checkoutStaysCount: activeStays.length, 
+        details: {
+          checkoutStaysCount: activeStays.length,
           customerId: checkIn.customerId,
           roomNumbers: activeStays.map(s => s.room.roomNumber).join(', ')
         },

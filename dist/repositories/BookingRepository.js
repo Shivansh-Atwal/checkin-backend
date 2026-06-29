@@ -244,6 +244,9 @@ class BookingRepository {
                 where: { id: booking.id },
                 include: { customer: true, room: true },
             });
+        }, {
+            timeout: 30000,
+            maxWait: 10000,
         });
     }
     static async update(id, data) {
@@ -701,6 +704,9 @@ class BookingRepository {
                 where: { id },
                 include: { customer: { include: { documents: true } }, room: true },
             });
+        }, {
+            timeout: 30000,
+            maxWait: 10000,
         });
     }
 }

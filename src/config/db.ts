@@ -20,7 +20,7 @@ const getTenantDbUrl = (cleanSchema: string): string => {
   }
 
   let url = baseDbUrl;
-  
+
   // Set schema name if it's not the public schema
   if (cleanSchema && cleanSchema !== 'public') {
     if (url.includes('?')) {

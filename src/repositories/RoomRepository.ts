@@ -41,7 +41,7 @@ export class RoomRepository {
         },
       },
     });
-    
+
     const mapped = this.mapRoom(room);
     if (!mapped) return null;
 

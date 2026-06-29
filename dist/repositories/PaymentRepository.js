@@ -52,6 +52,9 @@ class PaymentRepository {
                 }
             }
             return payment;
+        }, {
+            timeout: 30000,
+            maxWait: 10000,
         });
     }
 }

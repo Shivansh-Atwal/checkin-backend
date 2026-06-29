@@ -131,7 +131,11 @@ export class CheckInRepository {
         where: { id: createdCheckIns[0].id },
         include: { customer: true, room: true },
       });
-    });
+    },
+      {
+        timeout: 30000,
+        maxWait: 10000,
+      });
   }
 
   static async createPreviousStay(data: {
@@ -294,7 +298,11 @@ export class CheckInRepository {
         where: { id: createdCheckIns[0].id },
         include: { customer: true, room: true },
       });
-    });
+    },
+      {
+        timeout: 30000,
+        maxWait: 10000,
+      });
   }
 
   static async createFromBooking(data: {
@@ -399,6 +407,10 @@ export class CheckInRepository {
         where: { id: createdCheckIns[0].id },
         include: { customer: true, room: true },
       });
-    });
+    },
+      {
+        timeout: 30000,
+        maxWait: 10000,
+      });
   }
 }
