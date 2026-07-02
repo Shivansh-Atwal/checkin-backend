@@ -8,6 +8,7 @@ const tenantMiddleware = async (req, res, next) => {
     // Global public paths that do not require tenant database context resolution
     const globalBypassPaths = [
         '/health',
+        '/favicon.ico',
         '/api/auth/login',
         '/api/auth/register-tenant',
         '/api/auth/refresh' // Refresh token has encoded tenant scope
