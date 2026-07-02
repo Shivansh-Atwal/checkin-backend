@@ -41,7 +41,8 @@ app.use(cors({
 
     // Check if origin is explicitly allowed or belongs to local network/loopback ranges
     const isAllowed = allowedOrigins.includes(origin) ||
-      /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin);
+      /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin) ||
+      /^(capacitor|app):\/\/localhost$/.test(origin);
 
     if (isAllowed) {
       callback(null, true);
