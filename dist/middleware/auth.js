@@ -6,7 +6,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.checkPermission = exports.authenticate = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const errorHandler_1 = require("./errorHandler");
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'default-hotelflow-jwt-access-secret-key-reception';
+const db_1 = require("../config/db");
+const env_1 = require("../config/env");
 const authenticate = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -14,8 +15,15 @@ const authenticate = (req, res, next) => {
     }
     const token = authHeader.split(' ')[1];
     try {
-        const decoded = jsonwebtoken_1.default.verify(token, ACCESS_SECRET);
+        const decoded = jsonwebtoken_1.default.verify(token, env_1.ENV.JWT_ACCESS_SECRET);
         req.user = decoded;
+        // Cross-tenant boundary check:
+        const tokenTenantSchema = decoded.tenantId === 'public' ? 'public' : `tenant_${decoded.tenantId.toLowerCase().replace(/[^a-z0-9_]/g, '')}`;
+        const store = db_1.tenantStorage.getStore();
+        const activeTenantSchema = store?.tenantId || 'public';
+        if (tokenTenantSchema !== activeTenantSchema) {
+            return next(new errorHandler_1.AppError(403, 'Access denied. Token tenant does not match request tenant context.'));
+        }
         next();
     }
     catch (error) {
@@ -33,7 +41,7 @@ const checkPermission = (requiredPermission) => {
         if (role === 'ADMIN') {
             return next();
         }
-        if (permissions.includes(requiredPermission)) {
+        if (permissions && permissions.includes(requiredPermission)) {
             return next();
         }
         return next(new errorHandler_1.AppError(403, `Access denied. You do not have permission to perform this action (${requiredPermission}).`));

@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import os from 'os';
-import prisma, { disconnectAllClients } from './config/db';
+import prisma, { disconnectAllClients, initializeTenantSchemas } from './config/db';
 import apiRouter from './routes/api';
 import { errorHandler } from './middleware/errorHandler';
 import { tenantMiddleware } from './middleware/tenant';
@@ -79,6 +79,7 @@ async function start() {
     await prisma.$connect();
 
     console.log("Database connected");
+    await initializeTenantSchemas();
 
     app.listen(PORT, () => {
       console.log(`Server running on ${PORT}`);

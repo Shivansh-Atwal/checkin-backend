@@ -29,6 +29,7 @@ export class PaymentRepository {
   }
 
   static async create(data: {
+    id?: string;
     checkInId?: string;
     bookingId?: string;
     amount: number;

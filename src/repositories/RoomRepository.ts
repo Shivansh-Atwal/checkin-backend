@@ -120,11 +120,13 @@ export class RoomRepository {
   }
 
   static async create(data: {
+    id?: string;
     roomNumber: string;
     capacity: number;
   }) {
     const room = await prisma.room.create({
       data: {
+        id: data.id,
         roomNumber: data.roomNumber,
         capacity: Number(data.capacity),
       },

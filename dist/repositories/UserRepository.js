@@ -82,7 +82,6 @@ class UserRepository {
     }
     static async setCustomPermissions(userId, permissionIds) {
         const uniquePermissionIds = Array.from(new Set(permissionIds));
-        // Transaction to remove existing overrides and add new ones
         return db_1.default.$transaction([
             db_1.default.userPermission.deleteMany({
                 where: { userId },

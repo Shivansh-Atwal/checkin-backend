@@ -103,6 +103,7 @@ async function start() {
         console.log("Connecting to database...");
         await db_1.default.$connect();
         console.log("Database connected");
+        await (0, db_1.initializeTenantSchemas)();
         app.listen(PORT, () => {
             console.log(`Server running on ${PORT}`);
         });

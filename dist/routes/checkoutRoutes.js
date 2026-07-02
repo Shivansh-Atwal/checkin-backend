@@ -7,7 +7,7 @@ const constants_1 = require("../config/constants");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate);
 // Check-ins
-router.get('/checkins', checkoutController_1.CheckoutController.getActiveCheckIns);
+router.get('/checkins', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.BOOKINGS_READ), checkoutController_1.CheckoutController.getActiveCheckIns);
 router.post('/checkin/walkin', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.checkInWalkIn);
 router.post('/checkin/booking', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.checkInBooking);
 router.post('/checkin/previous', (0, auth_1.checkPermission)(constants_1.PERMISSIONS.CHECKINS_CREATE), checkoutController_1.CheckoutController.addPreviousStay);

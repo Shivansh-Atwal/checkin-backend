@@ -220,6 +220,7 @@ class BookingRepository {
         return db_1.default.$transaction(async (tx) => {
             const booking = await tx.booking.create({
                 data: {
+                    id: data.id,
                     bookingNumber,
                     customerId: data.customerId,
                     roomId: data.roomId,

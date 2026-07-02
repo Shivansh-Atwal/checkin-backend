@@ -52,6 +52,7 @@ class CheckInRepository {
             const bookingNumber = `HF-B-${Math.round(Math.random() * 1000000)}`;
             const booking = await tx.booking.create({
                 data: {
+                    id: data.bookingId,
                     bookingNumber,
                     customerId: data.customerId,
                     roomId: data.roomIds[0],
@@ -77,6 +78,7 @@ class CheckInRepository {
                 // Create CheckIn record for each room
                 const checkIn = await tx.checkIn.create({
                     data: {
+                        id: i === 0 ? data.id : undefined,
                         registrationNumber: regNum,
                         bookingId: i === 0 ? booking.id : null, // Link booking to first checkin
                         customerId: data.customerId,
@@ -282,6 +284,7 @@ class CheckInRepository {
                 // Create CheckIn
                 const checkIn = await tx.checkIn.create({
                     data: {
+                        id: i === 0 ? data.id : undefined,
                         registrationNumber: regNum,
                         bookingId: i === 0 ? data.bookingId : null, // Link booking to first checkin
                         customerId: booking.customerId,

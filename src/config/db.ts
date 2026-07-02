@@ -6,13 +6,11 @@ export interface TenantContext {
   tenantId: string;
 }
 
-// Storage for request-scoped tenant schema clients
 export const tenantStorage = new AsyncLocalStorage<TenantContext>();
 
-// Cache for instanced PrismaClients per schema to avoid connection/memory leaks
 const clientsCache: Record<string, PrismaClient> = {};
 
-// Helper to get a database URL with connection_limit=1 and a custom schema parameter
+// Helper to get a database URL with connection_limit=2 and a custom schema parameter
 const getTenantDbUrl = (cleanSchema: string): string => {
   const baseDbUrl = process.env.DATABASE_URL;
   if (!baseDbUrl) {
@@ -34,11 +32,11 @@ const getTenantDbUrl = (cleanSchema: string): string => {
     }
   }
 
-  // Enforce connection_limit=1 to prevent connection exhaustion in serverless/watch mode
+  // Enforce connection_limit=2 to prevent connection exhaustion in serverless/watch mode
   if (url.includes('connection_limit=')) {
-    url = url.replace(/connection_limit=[^&]*/, 'connection_limit=1');
+    url = url.replace(/connection_limit=[^&]*/, 'connection_limit=2');
   } else {
-    url = url.includes('?') ? `${url}&connection_limit=1` : `${url}?connection_limit=1`;
+    url = url.includes('?') ? `${url}&connection_limit=2` : `${url}?connection_limit=2`;
   }
 
   return url;
@@ -65,7 +63,6 @@ export const getPrismaClientForSchema = (schemaName: string): PrismaClient => {
   return client;
 };
 
-// Default static client (enforcing connection_limit=1)
 const defaultUrl = getTenantDbUrl('public');
 const defaultPrisma = new PrismaClient({
   datasources: {
@@ -76,14 +73,30 @@ const defaultPrisma = new PrismaClient({
 });
 clientsCache['public'] = defaultPrisma;
 
-// Transparent Proxy redirecting all calls to the request-scoped tenant client
-const prismaProxy = new Proxy(defaultPrisma, {
-  get(target, prop) {
-    const context = tenantStorage.getStore();
-    const client = context?.client || defaultPrisma;
-    return Reflect.get(client, prop);
-  },
-});
+const validSchemas = new Set<string>(['public']);
+
+export const registerValidSchema = (schemaName: string) => {
+  validSchemas.add(schemaName.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+};
+
+export const isValidSchema = (schemaName: string): boolean => {
+  const clean = schemaName.toLowerCase().replace(/[^a-z0-9_]/g, '');
+  return validSchemas.has(clean);
+};
+
+export const initializeTenantSchemas = async () => {
+  try {
+    const schemas = await defaultPrisma.$queryRawUnsafe<any[]>(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`
+    );
+    for (const s of schemas) {
+      validSchemas.add(s.schema_name);
+    }
+    console.log(`[Schema Registry] Loaded ${validSchemas.size} valid schemas into memory cache.`);
+  } catch (err) {
+    console.error('[Schema Registry] Failed to initialize tenant schemas list:', err);
+  }
+};
 
 export const disconnectAllClients = async () => {
   console.log('Disconnecting all Prisma clients...');
@@ -96,5 +109,14 @@ export const disconnectAllClients = async () => {
     }
   }
 };
+
+// Transparent Proxy redirecting all calls to the request-scoped tenant client
+const prismaProxy = new Proxy(defaultPrisma, {
+  get(target, prop) {
+    const context = tenantStorage.getStore();
+    const client = context?.client || defaultPrisma;
+    return Reflect.get(client, prop);
+  },
+});
 
 export default prismaProxy;

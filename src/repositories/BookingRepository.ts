@@ -231,6 +231,7 @@ export class BookingRepository {
   }
 
   static async create(data: {
+    id?: string;
     customerId: string;
     roomId: string;
     checkInDate: Date;
@@ -245,6 +246,7 @@ export class BookingRepository {
     return prisma.$transaction(async (tx) => {
       const booking = await tx.booking.create({
         data: {
+          id: data.id,
           bookingNumber,
           customerId: data.customerId,
           roomId: data.roomId,

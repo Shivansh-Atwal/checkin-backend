@@ -6,6 +6,7 @@ import customerRoutes from './customerRoutes';
 import checkoutRoutes from './checkoutRoutes';
 import adminRoutes from './adminRoutes';
 import inventoryRoutes from './inventoryRoutes';
+import syncRoutes from './syncRoutes';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use('/customers', customerRoutes);
 router.use('/stay', checkoutRoutes);
 router.use('/admin', adminRoutes);
 router.use('/inventory', inventoryRoutes);
+router.use('/sync', syncRoutes);
 
 export default router;

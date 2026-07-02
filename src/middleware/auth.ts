@@ -2,8 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler';
 import { PermissionType } from '../config/constants';
-
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'default-hotelflow-jwt-access-secret-key-reception';
+import { tenantStorage } from '../config/db';
+import { ENV } from '../config/env';
 
 export interface AuthUser {
   id: string;
@@ -11,6 +11,7 @@ export interface AuthUser {
   fullName: string;
   role: string;
   permissions: string[];
+  tenantId: string;
 }
 
 declare global {
@@ -30,8 +31,18 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, ACCESS_SECRET) as AuthUser;
+    const decoded = jwt.verify(token, ENV.JWT_ACCESS_SECRET) as AuthUser;
     req.user = decoded;
+
+    // Cross-tenant boundary check:
+    const tokenTenantSchema = decoded.tenantId === 'public' ? 'public' : `tenant_${decoded.tenantId.toLowerCase().replace(/[^a-z0-9_]/g, '')}`;
+    const store = tenantStorage.getStore();
+    const activeTenantSchema = store?.tenantId || 'public';
+
+    if (tokenTenantSchema !== activeTenantSchema) {
+      return next(new AppError(403, 'Access denied. Token tenant does not match request tenant context.'));
+    }
+
     next();
   } catch (error) {
     return next(new AppError(401, 'Invalid or expired authentication token.'));
@@ -51,7 +62,7 @@ export const checkPermission = (requiredPermission: PermissionType) => {
       return next();
     }
 
-    if (permissions.includes(requiredPermission)) {
+    if (permissions && permissions.includes(requiredPermission)) {
       return next();
     }
 

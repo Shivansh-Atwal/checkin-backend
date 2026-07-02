@@ -92,7 +92,6 @@ export class UserRepository {
 
   static async setCustomPermissions(userId: string, permissionIds: string[]) {
     const uniquePermissionIds = Array.from(new Set(permissionIds));
-    // Transaction to remove existing overrides and add new ones
     return prisma.$transaction([
       prisma.userPermission.deleteMany({
         where: { userId },

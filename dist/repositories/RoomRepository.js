@@ -122,6 +122,7 @@ class RoomRepository {
     static async create(data) {
         const room = await db_1.default.room.create({
             data: {
+                id: data.id,
                 roomNumber: data.roomNumber,
                 capacity: Number(data.capacity),
             },

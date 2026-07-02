@@ -44,11 +44,8 @@ const errorHandler_1 = require("../middleware/errorHandler");
 const db_1 = __importStar(require("../config/db"));
 const child_process_1 = require("child_process");
 const util_1 = __importDefault(require("util"));
+const env_1 = require("../config/env");
 const execPromise = util_1.default.promisify(child_process_1.exec);
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'default-hotelflow-jwt-access-secret-key-reception';
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'default-hotelflow-jwt-refresh-secret-key-owner';
-const ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '15m';
-const REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '7d';
 class AuthController {
     static async login(req, res, next) {
         const { email, password } = req.body;
@@ -112,15 +109,17 @@ class AuthController {
             const allPermissions = user.hasCustomPermissions
                 ? user.userPermissions.map((up) => up.permission.name)
                 : user.role.permissions.map((rp) => rp.permission.name);
-            // Create tokens
+            const tenantIdStr = resolvedSchema.startsWith('tenant_') ? resolvedSchema.replace('tenant_', '') : 'public';
+            // Create JWT tokens with encoded tenantId
             const accessToken = jsonwebtoken_1.default.sign({
                 id: user.id,
                 email: user.email,
                 fullName: user.fullName,
                 role: user.role.name,
                 permissions: allPermissions,
-            }, ACCESS_SECRET, { expiresIn: ACCESS_EXPIRY });
-            const refreshToken = jsonwebtoken_1.default.sign({ id: user.id }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRY });
+                tenantId: tenantIdStr,
+            }, env_1.ENV.JWT_ACCESS_SECRET, { expiresIn: env_1.ENV.JWT_ACCESS_EXPIRY });
+            const refreshToken = jsonwebtoken_1.default.sign({ id: user.id, tenantId: tenantIdStr }, env_1.ENV.JWT_REFRESH_SECRET, { expiresIn: env_1.ENV.JWT_REFRESH_EXPIRY });
             // Record Login History under the correct schema
             const activePrisma = (0, db_1.getPrismaClientForSchema)(resolvedSchema);
             await activePrisma.loginHistory.create({
@@ -135,7 +134,7 @@ class AuthController {
                 data: {
                     accessToken,
                     refreshToken,
-                    tenantId: resolvedSchema.startsWith('tenant_') ? resolvedSchema.replace('tenant_', '') : 'public',
+                    tenantId: tenantIdStr,
                     user: {
                         id: user.id,
                         email: user.email,
@@ -156,8 +155,26 @@ class AuthController {
             return next(new errorHandler_1.AppError(400, 'Refresh token is required.'));
         }
         try {
-            const decoded = jsonwebtoken_1.default.verify(refreshToken, REFRESH_SECRET);
-            const user = await UserRepository_1.UserRepository.findById(decoded.id);
+            const decoded = jsonwebtoken_1.default.verify(refreshToken, env_1.ENV.JWT_REFRESH_SECRET);
+            const schemaName = decoded.tenantId && decoded.tenantId.toLowerCase() !== 'public'
+                ? `tenant_${decoded.tenantId.toLowerCase().replace(/[^a-z0-9_]/g, '')}`
+                : 'public';
+            if (!(0, db_1.isValidSchema)(schemaName)) {
+                return next(new errorHandler_1.AppError(400, 'Invalid tenant associated with this token.'));
+            }
+            const client = (0, db_1.getPrismaClientForSchema)(schemaName);
+            let user;
+            await new Promise((resolve, reject) => {
+                db_1.tenantStorage.run({ client, tenantId: schemaName }, async () => {
+                    try {
+                        user = await UserRepository_1.UserRepository.findById(decoded.id);
+                        resolve();
+                    }
+                    catch (err) {
+                        reject(err);
+                    }
+                });
+            });
             if (!user || user.isDisabled) {
                 return next(new errorHandler_1.AppError(401, 'User account not found or disabled.'));
             }
@@ -171,7 +188,8 @@ class AuthController {
                 fullName: user.fullName,
                 role: user.role.name,
                 permissions: allPermissions,
-            }, ACCESS_SECRET, { expiresIn: ACCESS_EXPIRY });
+                tenantId: decoded.tenantId,
+            }, env_1.ENV.JWT_ACCESS_SECRET, { expiresIn: env_1.ENV.JWT_ACCESS_EXPIRY });
             res.status(200).json({
                 success: true,
                 data: {
@@ -210,7 +228,7 @@ class AuthController {
     }
     static async registerTenant(req, res, next) {
         const { tenantName, adminEmail, adminPassword, adminFullName, developerPassword } = req.body;
-        const devSecret = process.env.DEVELOPER_PASSWORD || 'hotelflow-dev-2026';
+        const devSecret = env_1.ENV.DEVELOPER_PASSWORD;
         if (developerPassword !== devSecret) {
             return next(new errorHandler_1.AppError(403, 'Invalid developer password. Registration unauthorized.'));
         }
@@ -229,10 +247,7 @@ class AuthController {
                 return next(new errorHandler_1.AppError(409, 'This tenant name is already registered.'));
             }
             // 2. Generate DATABASE_URL for new schema
-            const baseDbUrl = process.env.DATABASE_URL;
-            if (!baseDbUrl) {
-                throw new Error('DATABASE_URL is not set in env');
-            }
+            const baseDbUrl = env_1.ENV.DATABASE_URL;
             let tenantDbUrl = baseDbUrl;
             if (baseDbUrl.includes('?')) {
                 if (tenantDbUrl.includes('schema=')) {
@@ -247,7 +262,7 @@ class AuthController {
             }
             console.log(`Setting up database schema: ${schemaName}`);
             // 3. Programmatically push Prisma schema
-            const command = `npx prisma db push --accept-data-loss`;
+            const command = `npx prisma db push --schema=prisma/schema.prisma --accept-data-loss`;
             await execPromise(command, {
                 env: {
                     ...process.env,
@@ -359,6 +374,7 @@ class AuthController {
                 }
             });
             console.log(`Tenant ${cleanTenantName} created and seeded successfully.`);
+            (0, db_1.registerValidSchema)(schemaName);
             res.status(201).json({
                 success: true,
                 message: 'Tenant setup completed successfully.',

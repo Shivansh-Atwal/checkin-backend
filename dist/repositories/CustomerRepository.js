@@ -52,6 +52,7 @@ class CustomerRepository {
         const { document, ...customerData } = data;
         const normalizedCustomer = {
             ...customerData,
+            id: data.id,
             fullName: customerData.fullName ? customerData.fullName.toUpperCase() : '',
             address: customerData.address ? customerData.address.toUpperCase() : undefined,
             city: customerData.city ? customerData.city.toUpperCase() : undefined,

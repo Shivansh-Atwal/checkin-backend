@@ -1,23 +1,44 @@
 import { Request, Response, NextFunction } from 'express';
-import { tenantStorage, getPrismaClientForSchema } from '../config/db';
+import { tenantStorage, getPrismaClientForSchema, isValidSchema } from '../config/db';
+import { AppError } from './errorHandler';
 
-export const tenantMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  // Extract tenant schema name from request header 'X-Tenant-Id'
+export const tenantMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  const path = req.path;
+
+  // Global public paths that do not require tenant database context resolution
+  const globalBypassPaths = [
+    '/health',
+    '/api/auth/login',
+    '/api/auth/register-tenant',
+    '/api/auth/refresh' // Refresh token has encoded tenant scope
+  ];
+
+  if (globalBypassPaths.some((p) => path.startsWith(p))) {
+    return next();
+  }
+
   const tenantHeader = req.headers['x-tenant-id'] as string;
-  
-  // Default schema name is 'public'
-  const schemaName = tenantHeader && tenantHeader.toLowerCase() !== 'public'
-    ? `tenant_${tenantHeader.toLowerCase().replace(/[^a-z0-9_]/g, '')}`
-    : 'public';
-  
-  console.log(`[Tenant Middleware] Path: ${req.path} | X-Tenant-Id: '${tenantHeader || ''}' -> Schema: '${schemaName}'`);
-  
+  if (!tenantHeader) {
+    return next(new AppError(400, 'X-Tenant-Id header is required to resolve tenant database context.'));
+  }
+
+  const slug = tenantHeader.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!slug) {
+    return next(new AppError(400, 'Invalid tenant identifier format.'));
+  }
+
+  const schemaName = `tenant_${slug}`;
+
+  if (!isValidSchema(schemaName)) {
+    return next(new AppError(404, `Tenant context resolution failed: Invalid or inactive Tenant ID: '${tenantHeader}'`));
+  }
+
   try {
     const client = getPrismaClientForSchema(schemaName);
     tenantStorage.run({ client, tenantId: schemaName }, () => {
       next();
     });
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    return next(new AppError(404, `Tenant context resolution failed: ${err.message}`));
   }
 };

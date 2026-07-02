@@ -47,6 +47,7 @@ export class CustomerRepository {
   }
 
   static async create(data: {
+    id?: string;
     fullName: string;
     mobileNumber: string;
     alternateNumber?: string;
@@ -69,6 +70,7 @@ export class CustomerRepository {
     const { document, ...customerData } = data;
     const normalizedCustomer = {
       ...customerData,
+      id: data.id,
       fullName: customerData.fullName ? customerData.fullName.toUpperCase() : '',
       address: customerData.address ? customerData.address.toUpperCase() : undefined,
       city: customerData.city ? customerData.city.toUpperCase() : undefined,
