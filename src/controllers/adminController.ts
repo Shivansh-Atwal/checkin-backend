@@ -530,6 +530,30 @@ export class AdminController {
       });
       const stateWiseData = Object.values(stateSummary);
 
+      // Daily Report summary for today's date
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+
+      const staysToday = await prisma.checkIn.findMany({
+        where: {
+          checkInTime: { lte: todayEnd },
+          OR: [
+            { actualCheckOutTime: { gte: todayStart } },
+            { actualCheckOutTime: null, expectedCheckOutDate: { gte: todayStart } }
+          ]
+        }
+      });
+
+      const uniqueRoomsToday = new Set(staysToday.map(s => s.roomId));
+      const roomsUsedToday = uniqueRoomsToday.size;
+      const bookingsTodayCount = staysToday.length;
+      const peopleStayedToday = staysToday.reduce((sum, s) => sum + s.numberOfGuests, 0);
+
+      const todayRevenueData = await RevenueService.calculateRevenue(todayStart, todayEnd);
+      const todayRevenueVal = todayRevenueData.totalRevenue;
+
       res.status(200).json({
         success: true,
         data: {
@@ -539,6 +563,12 @@ export class AdminController {
           roomUtilization,
           detailedRecords,
           stateWiseData,
+          todaySummary: {
+            roomsUsed: roomsUsedToday,
+            bookingsCount: bookingsTodayCount,
+            peopleStayed: peopleStayedToday,
+            todayRevenue: todayRevenueVal
+          }
         },
       });
     } catch (error) {
