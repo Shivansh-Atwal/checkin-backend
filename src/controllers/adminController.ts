@@ -6,6 +6,7 @@ import { AuditLogService } from '../services/AuditLogService';
 import { AppError } from '../middleware/errorHandler';
 import { RoomRepository } from '../repositories/RoomRepository';
 import { RedisService } from '../services/RedisService';
+import { RevenueService } from '../services/RevenueService';
 
 export class AdminController {
   // --- Employee Management ---
@@ -344,10 +345,9 @@ export class AdminController {
         },
       });
 
-      const todayRevenue = await prisma.payment.aggregate({
-        _sum: { amount: true },
-        where: { paymentDate: { gte: today } },
-      });
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+      const revenueData = await RevenueService.calculateRevenue(today, todayEnd);
 
       const pendingPayments = await prisma.checkIn.aggregate({
         _sum: { remainingAmount: true },
@@ -361,7 +361,7 @@ export class AdminController {
         bookedRooms,
         todayCheckins,
         todayCheckouts,
-        todayRevenue: todayRevenue._sum.amount || 0,
+        todayRevenue: revenueData.totalRevenue,
         pendingPayments: pendingPayments._sum.remainingAmount || 0,
       };
 
@@ -379,15 +379,26 @@ export class AdminController {
 
   static async getReports(req: Request, res: Response, next: NextFunction) {
     try {
-      // Aggregate monthly payments
-      const payments = await prisma.payment.findMany();
-      
-      // Calculate revenue over time (simple grouping by date)
-      const revenueTrend: Record<string, number> = {};
-      payments.forEach((p) => {
-        const dateStr = new Date(p.paymentDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-        revenueTrend[dateStr] = (revenueTrend[dateStr] || 0) + p.amount;
+      // Get all stays to find first check-in date
+      const firstStay = await prisma.checkIn.findFirst({
+        orderBy: { checkInTime: 'asc' },
+        select: { checkInTime: true }
       });
+
+      const start = firstStay ? new Date(firstStay.checkInTime) : new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+
+      const revenueData = await RevenueService.calculateRevenue(start, end);
+
+      // Calculate revenue over time (grouping by date)
+      const revenueTrend: Record<string, number> = {};
+      for (const key of Object.keys(revenueData.dailyBreakdown)) {
+        const day = revenueData.dailyBreakdown[key];
+        const dateStr = new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        revenueTrend[dateStr] = (revenueTrend[dateStr] || 0) + day.totalRevenue;
+      }
 
       const revenueChart = Object.keys(revenueTrend).map((date) => ({
         date,
@@ -547,52 +558,15 @@ export class AdminController {
       const start = new Date(`${startDateStr}T00:00:00`);
       const end = new Date(`${endDateStr}T23:59:59.999`);
 
-      // Collect all booking records for that time period that have checkout records
-      const bookings = await prisma.booking.findMany({
-        where: {
-          checkInDate: {
-            gte: start,
-            lte: end,
-          },
-          status: { not: 'CANCELLED' },
-          checkInRecord: {
-            checkoutRecord: {
-              isNot: null
-            }
-          }
-        },
-        include: {
-          checkInRecord: {
-            include: {
-              checkoutRecord: true
-            }
-          }
-        }
-      });
-
-      let roomRevenue = 0;
-      let additionalItemsRevenue = 0;
-
-      // Extra safeguard filter in JS/TS
-      const checkedOutBookings = bookings.filter((booking) => booking.checkInRecord?.checkoutRecord);
-
-      checkedOutBookings.forEach((booking) => {
-        if (booking.checkInRecord?.checkoutRecord) {
-          // If checked out, use actual recorded charges
-          roomRevenue += booking.checkInRecord.checkoutRecord.roomCharges || 0;
-          additionalItemsRevenue += booking.checkInRecord.checkoutRecord.additionalCharges || 0;
-        }
-      });
-
-      const totalRevenue = roomRevenue + additionalItemsRevenue;
+      const rev = await RevenueService.calculateRevenue(start, end);
 
       res.status(200).json({
         success: true,
         data: {
-          totalRevenue,
-          roomRevenue,
-          additionalItemsRevenue,
-          bookingsCount: checkedOutBookings.length
+          totalRevenue: rev.totalRevenue,
+          roomRevenue: rev.roomRevenue,
+          additionalItemsRevenue: rev.additionalItemsRevenue,
+          bookingsCount: rev.bookingsCount
         }
       });
     } catch (error) {
