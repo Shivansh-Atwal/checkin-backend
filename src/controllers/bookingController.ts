@@ -358,10 +358,18 @@ export class BookingController {
       || payload.expectedCheckOutDate
       || (payload.checkoutDate && payload.checkoutTime ? `${payload.checkoutDate}T${payload.checkoutTime}` : payload.checkoutDate);
 
+    const status = payload.status
+      || (payload.bookingStatus === 'Check Out'
+        ? 'CHECKED_OUT'
+        : payload.bookingStatus === 'Check In'
+          ? 'CHECKED_IN'
+          : undefined);
+
     return {
       ...payload,
       checkInDate,
       checkOutDate,
+      status,
       roomId: payload.roomId || (Array.isArray(payload.roomIds) ? payload.roomIds[0] : undefined),
       price: payload.price ?? payload.pricePerNight,
       advancePayment: payload.advancePayment ?? payload.advancePaid,
