@@ -219,13 +219,17 @@ class BookingController {
     }
     static async upsertOfflineBooking(req) {
         const payload = req.body;
+        const normalizedPayload = BookingController.normalizeOfflineBookingPayload(payload);
         const existing = await BookingRepository_1.BookingRepository.findByOfflineKey({
             id: payload.id,
-            clientId: payload.clientId,
+            clientId: payload.offlineId || payload.clientId,
             registrationNumber: payload.registrationNumber,
         });
         if (existing) {
-            return BookingRepository_1.BookingRepository.update(existing.id, BookingController.normalizeOfflineBookingPayload(payload));
+            return BookingRepository_1.BookingRepository.update(existing.id, normalizedPayload);
+        }
+        if (normalizedPayload.status === 'CHECKED_OUT') {
+            throw new errorHandler_1.AppError(404, 'Offline checkout target was not found. Sync the original check-in before checkout.');
         }
         let resolvedCustomerId = payload.customerId;
         if (!resolvedCustomerId) {
@@ -316,10 +320,17 @@ class BookingController {
         const checkOutDate = payload.checkOutDate
             || payload.expectedCheckOutDate
             || (payload.checkoutDate && payload.checkoutTime ? `${payload.checkoutDate}T${payload.checkoutTime}` : payload.checkoutDate);
+        const status = payload.status
+            || (payload.bookingStatus === 'Check Out'
+                ? 'CHECKED_OUT'
+                : payload.bookingStatus === 'Check In'
+                    ? 'CHECKED_IN'
+                    : undefined);
         return {
             ...payload,
             checkInDate,
             checkOutDate,
+            status,
             roomId: payload.roomId || (Array.isArray(payload.roomIds) ? payload.roomIds[0] : undefined),
             price: payload.price ?? payload.pricePerNight,
             advancePayment: payload.advancePayment ?? payload.advancePaid,

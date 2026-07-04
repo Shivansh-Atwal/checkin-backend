@@ -142,6 +142,7 @@ class CheckoutController {
                 customCheckInTime = new Date(arrivalDate);
             }
             const checkIn = await CheckInRepository_1.CheckInRepository.createWalkIn({
+                id: req.body.id,
                 customerId: resolvedCustomerId,
                 roomIds: roomIdsToAllocate,
                 numberOfGuests: Number(numberOfGuests || 1),

@@ -534,6 +534,21 @@ export class BookingRepository {
           include: { customer: { include: { documents: true } }, room: true }
         });
 
+        if (oldCheckIn.bookingId && data.status !== undefined) {
+          const bookingUpdates: any = { status: data.status };
+          if (data.checkOutDate !== undefined) {
+            bookingUpdates.checkOutDate = parseDateInput(data.checkOutDate);
+          }
+          if (data.registrationNumber !== undefined) {
+            bookingUpdates.registrationNumber = data.registrationNumber ? data.registrationNumber.toUpperCase() : null;
+          }
+
+          await tx.booking.update({
+            where: { id: oldCheckIn.bookingId },
+            data: bookingUpdates,
+          });
+        }
+
         // If it has a checkoutRecord, update checkout & invoice & full payment
         if (oldCheckIn.checkoutRecord) {
           const roomCharges = finalPrice * nights;

@@ -175,6 +175,7 @@ export class CheckoutController {
       }
 
       const checkIn = await CheckInRepository.createWalkIn({
+        id: req.body.id,
         customerId: resolvedCustomerId,
         roomIds: roomIdsToAllocate,
         numberOfGuests: Number(numberOfGuests || 1),

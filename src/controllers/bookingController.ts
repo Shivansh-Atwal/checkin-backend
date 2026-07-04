@@ -251,14 +251,19 @@ export class BookingController {
 
   private static async upsertOfflineBooking(req: Request) {
     const payload = req.body;
+    const normalizedPayload = BookingController.normalizeOfflineBookingPayload(payload);
     const existing = await BookingRepository.findByOfflineKey({
       id: payload.id,
-      clientId: payload.clientId,
+      clientId: payload.offlineId || payload.clientId,
       registrationNumber: payload.registrationNumber,
     });
 
     if (existing) {
-      return BookingRepository.update(existing.id, BookingController.normalizeOfflineBookingPayload(payload));
+      return BookingRepository.update(existing.id, normalizedPayload);
+    }
+
+    if (normalizedPayload.status === 'CHECKED_OUT') {
+      throw new AppError(404, 'Offline checkout target was not found. Sync the original check-in before checkout.');
     }
 
     let resolvedCustomerId = payload.customerId;
