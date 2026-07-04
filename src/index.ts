@@ -25,6 +25,18 @@ process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const blockedProbePattern = /(^|\/)(?:\.env(?:\..*)?|\.git|\.svn|\.hg|wp-admin|wp-login\.php|phpmyadmin|server-status)(?:\/|$)/i;
+
+app.use((req, res, next) => {
+  if (blockedProbePattern.test(req.path)) {
+    console.warn(`[Security] Blocked probe ${req.method} ${req.originalUrl} from ${req.ip}`);
+    res.status(404).json({ success: false, error: 'Not found' });
+    return;
+  }
+
+  next();
+});
+
 // Security and utility Middlewares
 app.use(helmet({
   crossOriginResourcePolicy: false, // Allows static assets access from localhost frontend
@@ -59,16 +71,25 @@ app.use(morgan('dev'));
 // Serve uploaded documents statically
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+// Root Hello check
+app.get('/health', (req, res) => {
+  res.status(200).json({ success: true, status: 'HotelFlow Backend API is healthy.' });
+});
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+    res.status(404).json({ success: false, error: 'Not found' });
+    return;
+  }
+
+  next();
+});
+
 // Multi-Tenant context router resolver
 app.use(tenantMiddleware);
 
 // Main API Route
 app.use('/api', apiRouter);
-
-// Root Hello check
-app.get('/health', (req, res) => {
-  res.status(200).json({ success: true, status: 'HotelFlow Backend API is healthy.' });
-});
 
 // Global Error Handler
 app.use(errorHandler);

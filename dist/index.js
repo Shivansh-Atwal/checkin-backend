@@ -57,6 +57,15 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
+const blockedProbePattern = /(^|\/)(?:\.env(?:\..*)?|\.git|\.svn|\.hg|wp-admin|wp-login\.php|phpmyadmin|server-status)(?:\/|$)/i;
+app.use((req, res, next) => {
+    if (blockedProbePattern.test(req.path)) {
+        console.warn(`[Security] Blocked probe ${req.method} ${req.originalUrl} from ${req.ip}`);
+        res.status(404).json({ success: false, error: 'Not found' });
+        return;
+    }
+    next();
+});
 // Security and utility Middlewares
 app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: false, // Allows static assets access from localhost frontend
@@ -88,14 +97,21 @@ app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, morgan_1.default)('dev'));
 // Serve uploaded documents statically
 app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '..', 'uploads')));
-// Multi-Tenant context router resolver
-app.use(tenant_1.tenantMiddleware);
-// Main API Route
-app.use('/api', api_1.default);
 // Root Hello check
 app.get('/health', (req, res) => {
     res.status(200).json({ success: true, status: 'HotelFlow Backend API is healthy.' });
 });
+app.use((req, res, next) => {
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+        res.status(404).json({ success: false, error: 'Not found' });
+        return;
+    }
+    next();
+});
+// Multi-Tenant context router resolver
+app.use(tenant_1.tenantMiddleware);
+// Main API Route
+app.use('/api', api_1.default);
 // Global Error Handler
 app.use(errorHandler_1.errorHandler);
 // Start Server
