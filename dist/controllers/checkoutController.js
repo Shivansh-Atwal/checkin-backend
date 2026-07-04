@@ -75,10 +75,15 @@ class CheckoutController {
                             { registrationNumber: registrationNumber },
                             { registrationNumber: { startsWith: `${registrationNumber}-` } }
                         ]
-                    }
+                    },
+                    include: { customer: true, room: true },
                 });
                 if (existingReg) {
-                    return next(new errorHandler_1.AppError(400, `Registration number '${registrationNumber}' is already in use.`));
+                    res.status(200).json({
+                        success: true,
+                        data: existingReg,
+                    });
+                    return;
                 }
             }
             let roomIdsToAllocate = [];

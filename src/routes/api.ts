@@ -7,6 +7,7 @@ import checkoutRoutes from './checkoutRoutes';
 import adminRoutes from './adminRoutes';
 import inventoryRoutes from './inventoryRoutes';
 import syncRoutes from './syncRoutes';
+import masterRoutes from './masterRoutes';
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use('/stay', checkoutRoutes);
 router.use('/admin', adminRoutes);
 router.use('/inventory', inventoryRoutes);
 router.use('/sync', syncRoutes);
+router.use('/master', masterRoutes);
 
 export default router;

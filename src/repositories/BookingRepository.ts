@@ -72,6 +72,88 @@ export class BookingRepository {
     });
   }
 
+  static async findByOfflineKey(data: { id?: string; clientId?: string; registrationNumber?: string }) {
+    const registrationNumber = data.registrationNumber ? data.registrationNumber.toUpperCase() : undefined;
+
+    if (data.id && data.id !== 'offline') {
+      const booking = await this.findById(data.id);
+      if (booking) return booking;
+    }
+
+    if (data.clientId) {
+      const booking = await this.findById(data.clientId);
+      if (booking) return booking;
+    }
+
+    if (registrationNumber) {
+      const booking = await prisma.booking.findFirst({
+        where: { registrationNumber },
+        include: {
+          customer: {
+            include: { documents: true },
+          },
+          room: true,
+          payments: true,
+          checkInRecord: true,
+        },
+      });
+      if (booking) return booking;
+
+      const checkIn = await prisma.checkIn.findFirst({
+        where: {
+          OR: [
+            { registrationNumber },
+            { registrationNumber: { startsWith: `${registrationNumber}-` } },
+          ],
+        },
+        include: {
+          customer: {
+            include: { documents: true },
+          },
+          room: true,
+          payments: true,
+          booking: true,
+        },
+      });
+
+      if (checkIn?.booking) {
+        return this.findById(checkIn.booking.id);
+      }
+    }
+
+    return null;
+  }
+
+  static async delete(id: string) {
+    return prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.findUnique({
+        where: { id },
+        include: { checkInRecord: true },
+      });
+
+      if (!booking) {
+        return { deleted: false, id };
+      }
+
+      await tx.payment.deleteMany({
+        where: { bookingId: id },
+      });
+
+      if (booking.checkInRecord) {
+        await tx.checkIn.update({
+          where: { id: booking.checkInRecord.id },
+          data: { bookingId: null },
+        });
+      }
+
+      await tx.booking.delete({
+        where: { id },
+      });
+
+      return { deleted: true, id };
+    });
+  }
+
   static async getNextRegistrationNumber(): Promise<string> {
     const bookings = await prisma.booking.findMany({
       where: { registrationNumber: { not: null } },
@@ -318,17 +400,38 @@ export class BookingRepository {
     }>
   ) {
     return prisma.$transaction(async (tx) => {
-      const oldBooking = await tx.booking.findUnique({
-        where: { id },
-        include: { customer: true }
-      });
+      let actualId = id;
+      let oldBooking = null;
+
+      if (id !== 'offline') {
+        oldBooking = await tx.booking.findUnique({
+          where: { id },
+          include: { customer: true }
+        });
+      } else if (data.registrationNumber) {
+        oldBooking = await tx.booking.findFirst({
+          where: { registrationNumber: data.registrationNumber.toUpperCase() },
+          include: { customer: true }
+        });
+        if (oldBooking) {
+          actualId = oldBooking.id;
+        }
+      }
 
       if (!oldBooking) {
         // Check if this is a legacy walk-in stay (CheckIn record with bookingId = null)
-        const oldCheckIn = await tx.checkIn.findUnique({
-          where: { id },
-          include: { customer: true, checkoutRecord: true }
-        });
+        let oldCheckIn = null;
+        if (id !== 'offline') {
+          oldCheckIn = await tx.checkIn.findUnique({
+            where: { id },
+            include: { customer: true, checkoutRecord: true }
+          });
+        } else if (data.registrationNumber) {
+          oldCheckIn = await tx.checkIn.findFirst({
+            where: { registrationNumber: data.registrationNumber.toUpperCase() },
+            include: { customer: true, checkoutRecord: true }
+          });
+        }
         if (!oldCheckIn) throw new Error('Record not found');
 
         // 1. Update customer details if provided
@@ -423,7 +526,7 @@ export class BookingRepository {
         }
 
         const updatedCheckIn = await tx.checkIn.update({
-          where: { id },
+          where: { id: oldCheckIn.id },
           data: checkInUpdates,
           include: { customer: { include: { documents: true } }, room: true }
         });
@@ -488,11 +591,11 @@ export class BookingRepository {
         };
         if (oldCheckIn.bookingId) {
           walkInWhereClause.OR = [
-            { checkInId: id },
+            { checkInId: oldCheckIn.id },
             { bookingId: oldCheckIn.bookingId }
           ];
         } else {
-          walkInWhereClause.checkInId = id;
+          walkInWhereClause.checkInId = oldCheckIn.id;
         }
 
         const existingAdvancePayment = await tx.payment.findFirst({
@@ -519,7 +622,7 @@ export class BookingRepository {
         } else if (newAdvanceAmount > 0) {
           await tx.payment.create({
             data: {
-              checkInId: id,
+              checkInId: oldCheckIn.id,
               bookingId: oldCheckIn.bookingId || null,
               amount: newAdvanceAmount,
               paymentType: 'ADVANCE',
@@ -625,13 +728,13 @@ export class BookingRepository {
       if (data.registrationNumber !== undefined) bookingUpdates.registrationNumber = data.registrationNumber ? data.registrationNumber.toUpperCase() : null;
 
       const updated = await tx.booking.update({
-        where: { id },
-        data: bookingUpdates,
+          where: { id: actualId },
+          data: bookingUpdates,
       });
 
       const existingAdvancePayment = await tx.payment.findFirst({
         where: {
-          bookingId: id,
+          bookingId: actualId,
           paymentType: 'ADVANCE',
         },
       });
@@ -655,12 +758,12 @@ export class BookingRepository {
         }
       } else if (newAdvanceAmount > 0) {
         const activeCheckIn = await tx.checkIn.findFirst({
-          where: { bookingId: id },
+          where: { bookingId: actualId },
         });
 
         await tx.payment.create({
           data: {
-            bookingId: id,
+            bookingId: actualId,
             checkInId: activeCheckIn?.id || null,
             amount: newAdvanceAmount,
             paymentType: 'ADVANCE',
@@ -676,7 +779,7 @@ export class BookingRepository {
 
       // 5. Cascade updates to CheckIn and Checkout records if booking has a CheckIn
       const checkInRecord = await tx.checkIn.findUnique({
-        where: { bookingId: id },
+        where: { bookingId: actualId },
         include: { checkoutRecord: true },
       });
 
@@ -773,7 +876,7 @@ export class BookingRepository {
       }
 
       return tx.booking.findUnique({
-        where: { id },
+        where: { id: actualId },
         include: { customer: { include: { documents: true } }, room: true },
       });
     },

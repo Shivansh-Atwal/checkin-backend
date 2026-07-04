@@ -13,5 +13,6 @@ router.get('/:id', checkPermission(PERMISSIONS.BOOKINGS_READ), BookingController
 router.post('/', checkPermission(PERMISSIONS.BOOKINGS_CREATE), BookingController.create);
 router.put('/:id', checkPermission(PERMISSIONS.BOOKINGS_UPDATE), BookingController.update);
 router.patch('/:id/cancel', checkPermission(PERMISSIONS.BOOKINGS_CANCEL), BookingController.cancel);
+router.delete('/:id', checkPermission(PERMISSIONS.BOOKINGS_CANCEL), BookingController.delete);
 
 export default router;
