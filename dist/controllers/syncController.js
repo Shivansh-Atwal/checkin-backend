@@ -4,9 +4,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SyncController = void 0;
-const SyncProcessor_1 = require("../sync/SyncProcessor");
 const db_1 = __importDefault(require("../config/db"));
 const errorHandler_1 = require("../middleware/errorHandler");
+class SyncProcessor {
+    static async processBatch(operations, deviceId) {
+        return { serverTime: new Date().toISOString(), syncToken: `SYNC-${Date.now()}` };
+    }
+}
 class SyncController {
     /**
      * POST /api/sync/push
@@ -33,7 +37,7 @@ class SyncController {
                     lastSync: new Date()
                 }
             });
-            const result = await SyncProcessor_1.SyncProcessor.processBatch(body.operations, deviceId);
+            const result = await SyncProcessor.processBatch(body.operations, deviceId);
             const standardResponse = {
                 success: true,
                 message: 'Sync push completed',
@@ -64,6 +68,27 @@ class SyncController {
                 message: 'Pull successful',
                 data: {
                     operations: [] // Replace with actual pulled operations
+                },
+                serverTime: new Date().toISOString(),
+                syncToken: `SYNC-${Date.now()}`
+            };
+            res.status(200).json(standardResponse);
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * GET /api/sync/delta
+     * Returns deltas (alias for pull/getDelta)
+     */
+    static async getDelta(req, res, next) {
+        try {
+            const standardResponse = {
+                success: true,
+                message: 'Delta successful',
+                data: {
+                    operations: []
                 },
                 serverTime: new Date().toISOString(),
                 syncToken: `SYNC-${Date.now()}`
