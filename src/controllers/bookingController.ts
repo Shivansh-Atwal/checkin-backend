@@ -176,7 +176,13 @@ export class BookingController {
         success: true,
         data: updated,
       });
-    } catch (error) {
+    } catch (error: any) {
+      if (error.message?.includes('MOBILE_NUMBER_CONFLICT')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Mobile number is already registered to another customer. Please use a different number.',
+        });
+      }
       next(error);
     }
   }
