@@ -673,11 +673,6 @@ export class CheckoutController {
     }
 
     try {
-      const checkIn = await CheckInRepository.findById(checkInId);
-      if (!checkIn || checkIn.status !== 'ACTIVE') {
-        return next(new AppError(400, 'Stay record is not active or already checked out.'));
-      }
-
       let checkoutTimeObj = new Date();
       if (req.body.checkoutTimeISO) {
         checkoutTimeObj = new Date(req.body.checkoutTimeISO);
@@ -685,6 +680,42 @@ export class CheckoutController {
         checkoutTimeObj = new Date(`${checkoutDate}T${checkoutTime}`);
       } else if (checkoutDate) {
         checkoutTimeObj = new Date(checkoutDate);
+      }
+
+      const checkIn = await CheckInRepository.findById(checkInId);
+      if (!checkIn || checkIn.status !== 'ACTIVE') {
+        if (checkIn?.checkoutRecord) {
+          const existingCheckout = await prisma.checkout.findUnique({
+            where: { checkInId: checkIn.id },
+            include: { checkIn: { include: { room: true } }, invoice: true },
+          });
+          const invoiceUrl = existingCheckout
+            ? await CheckoutController.ensureInvoiceUrl(existingCheckout.id)
+            : null;
+
+          res.status(200).json({
+            success: true,
+            message: 'Checkout was already recorded.',
+            data: {
+              checkout: {
+                roomId: checkIn.roomId,
+                roomNumber: checkIn.room.roomNumber,
+                checkoutId: existingCheckout?.id,
+                invoiceUrl,
+              },
+              allCheckouts: [{
+                roomId: checkIn.roomId,
+                roomNumber: checkIn.room.roomNumber,
+                checkoutId: existingCheckout?.id,
+                invoiceUrl,
+              }],
+            },
+          });
+          return;
+        }
+
+        await CheckoutController.createPreviousStayFromCheckout(req, res, checkoutTimeObj);
+        return;
       }
 
       // Fetch all active stays for the same customer
@@ -788,6 +819,226 @@ export class CheckoutController {
     } catch (error) {
       next(error);
     }
+  }
+
+  private static async createPreviousStayFromCheckout(
+    req: Request,
+    res: Response,
+    checkoutTimeObj: Date
+  ) {
+    const payload = req.body;
+    const existingHistorical = await CheckoutController.findExistingHistoricalCheckout(payload);
+    if (existingHistorical?.checkoutRecord) {
+      const invoiceUrl = await CheckoutController.ensureInvoiceUrl(existingHistorical.checkoutRecord.id);
+      res.status(200).json({
+        success: true,
+        message: 'Historical checkout was already recorded.',
+        data: {
+          checkout: {
+            roomId: existingHistorical.roomId,
+            roomNumber: existingHistorical.room.roomNumber,
+            checkoutId: existingHistorical.checkoutRecord.id,
+            invoiceUrl,
+            historical: true,
+          },
+          allCheckouts: [{
+            roomId: existingHistorical.roomId,
+            roomNumber: existingHistorical.room.roomNumber,
+            checkoutId: existingHistorical.checkoutRecord.id,
+            invoiceUrl,
+            historical: true,
+          }],
+        },
+      });
+      return;
+    }
+
+    const customerId = await CheckoutController.resolveHistoricalCheckoutCustomer(payload);
+    const roomIds = await CheckoutController.resolveHistoricalCheckoutRoomIds(payload);
+    const checkInTimeObj = CheckoutController.resolveHistoricalCheckInTime(payload, checkoutTimeObj);
+
+    if (checkoutTimeObj.getTime() <= checkInTimeObj.getTime()) {
+      throw new AppError(400, 'Historical checkout time must be after check-in time.');
+    }
+
+    const historicalStay = await CheckInRepository.createPreviousStay({
+      customerId,
+      roomIds,
+      numberOfGuests: Number(payload.numberOfGuests || 1),
+      checkInTime: checkInTimeObj,
+      expectedCheckOutDate: checkoutTimeObj,
+      advancePaid: Number(payload.advancePaid || 0),
+      remainingAmount: Number(payload.remainingAmount || 0),
+      paymentMethod: payload.paymentMethod,
+      registrationNumber: payload.registrationNumber,
+      pricePerNight: Number(payload.pricePerNight || payload.roomCharges || payload.finalAmount || 0),
+      roomPrices: payload.roomPrices,
+      extraBedsCount: Number(payload.extraBedsCount || 0),
+      extraBedPrice: Number(payload.extraBedPrice || 0),
+      additionalCharges: Number(payload.additionalCharges || 0),
+      discount: Number(payload.discount || 0),
+      taxAmount: Number(payload.taxAmount || 0),
+      finalAmount: payload.finalAmount !== undefined ? Number(payload.finalAmount) : undefined,
+      notes: payload.notes,
+    });
+
+    if (!historicalStay) {
+      throw new AppError(500, 'Historical checkout record creation failed.');
+    }
+
+    const createdCheckIns = await prisma.checkIn.findMany({
+      where: {
+        customerId,
+        checkInTime: checkInTimeObj,
+        actualCheckOutTime: checkoutTimeObj,
+        status: 'CHECKED_OUT',
+      },
+      include: {
+        room: true,
+        checkoutRecord: true,
+      },
+    });
+
+    const checkoutRecords = [];
+    for (const stay of createdCheckIns) {
+      if (!stay.checkoutRecord) continue;
+      const invoiceUrl = await CheckoutController.ensureInvoiceUrl(stay.checkoutRecord.id);
+      checkoutRecords.push({
+        roomId: stay.roomId,
+        roomNumber: stay.room.roomNumber,
+        checkoutId: stay.checkoutRecord.id,
+        invoiceUrl,
+        historical: true,
+      });
+    }
+
+    await AuditLogService.log({
+      userId: req.user?.id,
+      userName: req.user?.fullName,
+      action: 'Offline Checkout Added as Previous Stay',
+      ipAddress: req.ip as string,
+      details: {
+        originalCheckInId: payload.checkInId,
+        customerId,
+        roomIds,
+      },
+    });
+
+    await RedisService.invalidateDashboardStats();
+
+    res.status(201).json({
+      success: true,
+      message: 'No active check-in was found. Checkout was saved as a previous stay.',
+      data: {
+        checkout: checkoutRecords[0],
+        allCheckouts: checkoutRecords,
+      },
+    });
+  }
+
+  private static async findExistingHistoricalCheckout(payload: any) {
+    if (!payload.registrationNumber) return null;
+
+    return prisma.checkIn.findFirst({
+      where: {
+        registrationNumber: String(payload.registrationNumber).toUpperCase(),
+        status: 'CHECKED_OUT',
+      },
+      include: {
+        room: true,
+        checkoutRecord: true,
+      },
+    });
+  }
+
+  private static async resolveHistoricalCheckoutCustomer(payload: any): Promise<string> {
+    if (payload.customerId) {
+      const existingById = await CustomerRepository.findById(payload.customerId);
+      if (existingById) return existingById.id;
+    }
+
+    if (!payload.customerName || !payload.mobileNumber) {
+      throw new AppError(400, 'Guest details are required to save checkout as a previous stay.');
+    }
+
+    const existingByMobile = await CustomerRepository.findByMobile(payload.mobileNumber);
+    if (existingByMobile) {
+      await CustomerRepository.update(existingByMobile.id, {
+        address: payload.address || existingByMobile.address || undefined,
+        city: payload.city || existingByMobile.city || undefined,
+        state: payload.state || existingByMobile.state || undefined,
+        country: payload.country || existingByMobile.country || undefined,
+        pincode: payload.pincode || existingByMobile.pincode || undefined,
+        document: payload.document,
+      });
+      return existingByMobile.id;
+    }
+
+    const created = await CustomerRepository.create({
+      fullName: payload.customerName,
+      mobileNumber: payload.mobileNumber,
+      address: payload.address,
+      city: payload.city,
+      state: payload.state,
+      country: payload.country,
+      pincode: payload.pincode,
+      document: payload.document,
+    });
+
+    if (!created) {
+      throw new AppError(500, 'Customer profile creation failed for historical checkout.');
+    }
+
+    return created.id;
+  }
+
+  private static async resolveHistoricalCheckoutRoomIds(payload: any): Promise<string[]> {
+    const roomIds = Array.isArray(payload.roomIds) && payload.roomIds.length > 0
+      ? payload.roomIds
+      : payload.roomId
+        ? [payload.roomId]
+        : [];
+
+    const resolvedRoomIds: string[] = [];
+    for (const roomId of roomIds) {
+      const room = await RoomRepository.findById(roomId);
+      if (room) resolvedRoomIds.push(room.id);
+    }
+
+    if (resolvedRoomIds.length === 0 && payload.roomNumber) {
+      const room = await RoomRepository.findByRoomNumber(String(payload.roomNumber));
+      if (room) resolvedRoomIds.push(room.id);
+    }
+
+    if (resolvedRoomIds.length === 0) {
+      throw new AppError(400, 'Room details are required to save checkout as a previous stay.');
+    }
+
+    return resolvedRoomIds;
+  }
+
+  private static resolveHistoricalCheckInTime(payload: any, checkoutTimeObj: Date): Date {
+    const candidates = [
+      payload.checkInTime,
+      payload.arrivalDate && payload.arrivalTime ? `${payload.arrivalDate}T${payload.arrivalTime}` : null,
+      payload.arrivalDate,
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      const parsed = new Date(candidate as string);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    return new Date(checkoutTimeObj.getTime() - 24 * 60 * 60 * 1000);
+  }
+
+  private static async ensureInvoiceUrl(checkoutId: string): Promise<string | null> {
+    const invoiceUrl = await InvoiceService.generateInvoiceHTML(checkoutId);
+    await prisma.invoice.update({
+      where: { checkoutId },
+      data: { pdfUrl: invoiceUrl },
+    });
+    return invoiceUrl;
   }
 
   static async collectPartialPayment(req: Request, res: Response, next: NextFunction) {

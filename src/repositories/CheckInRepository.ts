@@ -160,6 +160,11 @@ export class CheckInRepository {
     roomPrices?: { [roomId: string]: number };
     extraBedsCount?: number;
     extraBedPrice?: number;
+    additionalCharges?: number;
+    discount?: number;
+    taxAmount?: number;
+    finalAmount?: number;
+    notes?: string;
   }) {
     const arrivalTime = new Date(data.checkInTime);
     const checkoutTime = new Date(data.expectedCheckOutDate);
@@ -200,6 +205,13 @@ export class CheckInRepository {
         const regNum = data.roomIds.length > 1 ? `${baseReg}-${roomNumber}` : baseReg;
 
         const roomRate = Number(data.roomPrices && data.roomPrices[rId] !== undefined ? data.roomPrices[rId] : data.pricePerNight) + (i === 0 ? totalExtraBedsCost : 0);
+        const calculatedRoomCharges = roomRate * nights;
+        const checkoutAdditionalCharges = i === 0 ? Number(data.additionalCharges || 0) : 0;
+        const checkoutDiscount = i === 0 ? Number(data.discount || 0) : 0;
+        const checkoutTaxAmount = i === 0 ? Number(data.taxAmount || 0) : 0;
+        const checkoutFinalAmount = i === 0 && data.finalAmount !== undefined
+          ? Number(data.finalAmount)
+          : Math.max(0, calculatedRoomCharges + checkoutAdditionalCharges - checkoutDiscount + checkoutTaxAmount);
 
         // 2. Create CheckIn record for each room in Checked Out state
         const checkIn = await tx.checkIn.create({
@@ -227,11 +239,11 @@ export class CheckInRepository {
         const checkoutRecord = await tx.checkout.create({
           data: {
             checkInId: checkIn.id,
-            roomCharges: roomRate * nights,
-            additionalCharges: 0,
-            discount: 0,
-            taxAmount: 0,
-            finalAmount: roomRate * nights,
+            roomCharges: calculatedRoomCharges,
+            additionalCharges: checkoutAdditionalCharges,
+            discount: checkoutDiscount,
+            taxAmount: checkoutTaxAmount,
+            finalAmount: checkoutFinalAmount,
             billingStatus: 'PAID',
             createdAt: checkoutTime,
           },
@@ -243,7 +255,7 @@ export class CheckInRepository {
           data: {
             checkoutId: checkoutRecord.id,
             invoiceNumber,
-            totalAmount: roomRate * nights,
+            totalAmount: checkoutFinalAmount,
           },
         });
 
@@ -266,7 +278,7 @@ export class CheckInRepository {
           }
 
           // Remaining payout
-          const totalBill = roomRate * nights;
+          const totalBill = checkoutFinalAmount;
           const remainingPaid = totalBill - data.advancePaid;
           if (remainingPaid > 0) {
             await tx.payment.create({
@@ -277,14 +289,14 @@ export class CheckInRepository {
                 paymentType: 'FULL',
                 paymentMethod: data.paymentMethod || 'Cash',
                 paymentStatus: 'PAID',
-                notes: 'Historical Stay Final Payment',
+                notes: data.notes || 'Historical Stay Final Payment',
                 paymentDate: checkoutTime,
               },
             });
           }
         } else {
           // For secondary rooms, they have 0 advance, so they pay totalBill in full
-          const totalBill = roomRate * nights;
+          const totalBill = checkoutFinalAmount;
           if (totalBill > 0) {
             await tx.payment.create({
               data: {
