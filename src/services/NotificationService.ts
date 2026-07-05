@@ -28,7 +28,7 @@ export class NotificationService {
       return notification;
     } catch (error) {
       console.error('Failed to save notification record:', error);
-      
+
       // Attempt fallback write as pending or save failed state
       try {
         return await prisma.notification.create({

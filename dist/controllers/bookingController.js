@@ -152,6 +152,12 @@ class BookingController {
             });
         }
         catch (error) {
+            if (error?.code === 'P2002' && error?.meta?.target?.includes('mobileNumber')) {
+                return next(new errorHandler_1.AppError(400, 'Mobile number is already registered to another guest.'));
+            }
+            if (error?.message === 'Record not found' || error?.code === 'P2025') {
+                return next(new errorHandler_1.AppError(404, 'Booking or Check-in record not found.'));
+            }
             next(error);
         }
     }

@@ -434,16 +434,6 @@ export class BookingRepository {
         }
         if (!oldCheckIn) throw new Error('Record not found');
 
-        // 0. Validate mobile number to avoid unique constraint error
-        if (data.mobileNumber && data.mobileNumber !== oldCheckIn.customer.mobileNumber) {
-          const existingMobile = await tx.customer.findUnique({
-            where: { mobileNumber: data.mobileNumber }
-          });
-          if (existingMobile && existingMobile.id !== oldCheckIn.customerId) {
-            throw new Error('MOBILE_NUMBER_CONFLICT: Mobile number is already registered to another customer.');
-          }
-        }
-
         // 1. Update customer details if provided
         if (
           data.customerName !== undefined ||
@@ -681,16 +671,6 @@ export class BookingRepository {
         } as any;
       }
 
-      // 0. Validate mobile number to avoid unique constraint error
-      if (data.mobileNumber && data.mobileNumber !== oldBooking.customer.mobileNumber) {
-        const existingMobile = await tx.customer.findUnique({
-          where: { mobileNumber: data.mobileNumber }
-        });
-        if (existingMobile && existingMobile.id !== oldBooking.customerId) {
-          throw new Error('MOBILE_NUMBER_CONFLICT: Mobile number is already registered to another customer.');
-        }
-      }
-
       // 1. Update customer details if provided
       if (
         data.customerName !== undefined ||
@@ -766,8 +746,8 @@ export class BookingRepository {
       if (data.registrationNumber !== undefined) bookingUpdates.registrationNumber = data.registrationNumber ? data.registrationNumber.toUpperCase() : null;
 
       const updated = await tx.booking.update({
-          where: { id: actualId },
-          data: bookingUpdates,
+        where: { id: actualId },
+        data: bookingUpdates,
       });
 
       const existingAdvancePayment = await tx.payment.findFirst({
