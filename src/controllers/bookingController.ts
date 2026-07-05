@@ -177,11 +177,11 @@ export class BookingController {
         data: updated,
       });
     } catch (error: any) {
-      if (error.message?.includes('MOBILE_NUMBER_CONFLICT')) {
-        return res.status(400).json({
-          success: false,
-          error: 'Mobile number is already registered to another customer. Please use a different number.',
-        });
+      if (error?.code === 'P2002' && error?.meta?.target?.includes('mobileNumber')) {
+        return next(new AppError(400, 'Mobile number is already registered to another guest.'));
+      }
+      if (error?.message === 'Record not found' || error?.code === 'P2025') {
+        return next(new AppError(404, 'Booking or Check-in record not found.'));
       }
       next(error);
     }
