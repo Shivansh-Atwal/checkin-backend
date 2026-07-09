@@ -1,11 +1,4 @@
-# Environment
-.env
-
-# Dependencies
 node_modules/
-
-# Prisma generated files
+dist/
+.env
 .prisma/
-
-# Uploads
-uploads/
