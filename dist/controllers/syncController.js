@@ -26,17 +26,7 @@ class SyncController {
             if (!body.operations || !Array.isArray(body.operations)) {
                 throw new errorHandler_1.AppError(400, 'Invalid sync payload. Expected "operations" array.');
             }
-            // Record device sync time
-            await db_1.default.device.upsert({
-                where: { deviceId },
-                create: {
-                    deviceId,
-                    lastSync: new Date(),
-                },
-                update: {
-                    lastSync: new Date()
-                }
-            });
+            // Device logic omitted as Device model is not defined in the Prisma schema
             const result = await SyncProcessor.processBatch(body.operations, deviceId);
             const standardResponse = {
                 success: true,
@@ -109,10 +99,10 @@ class SyncController {
                 success: true,
                 message: 'Bootstrap data generated',
                 data: {
-                    rooms: await db_1.default.room.findMany({ where: { deletedAt: null } }),
-                    customers: await db_1.default.customer.findMany({ where: { deletedAt: null } }),
-                    bookings: await db_1.default.booking.findMany({ where: { deletedAt: null } }),
-                    checkIns: await db_1.default.checkIn.findMany({ where: { deletedAt: null } }),
+                    rooms: await db_1.default.room.findMany(),
+                    customers: await db_1.default.customer.findMany(),
+                    bookings: await db_1.default.booking.findMany(),
+                    checkIns: await db_1.default.checkIn.findMany(),
                 },
                 serverTime: new Date().toISOString(),
                 syncToken: `SYNC-${Date.now()}`
