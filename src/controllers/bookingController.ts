@@ -69,46 +69,41 @@ export class BookingController {
 
       const baseReg = registrationNumber || `REG-${Math.floor(100000 + Math.random() * 900000)}`;
 
-      const createdBookings = [];
-      for (let i = 0; i < targetRoomIds.length; i++) {
-        const rId = targetRoomIds[i];
-
-        // 2. Verify Room Availability
+      // 2. Verify Room Availability
+      let roomNumbers = [];
+      for (const rId of targetRoomIds) {
         const room = await RoomRepository.findById(rId);
-        if (!room || room.status !== 'AVAILABLE') {
-          return next(new AppError(400, `Room ${room?.roomNumber || rId} is not available for booking.`));
+        if (!room) {
+          return next(new AppError(400, `Room ${rId} is not available for booking.`));
         }
-
-        const roomNumber = room ? room.roomNumber : '';
-        const regNum = targetRoomIds.length > 1 ? `${baseReg}-${roomNumber}` : baseReg;
-
-        // 3. Create Booking
-        const booking = await BookingRepository.create({
-          customerId: resolvedCustomerId,
-          roomId: rId,
-          checkInDate: new Date(checkInDate),
-          checkOutDate: new Date(checkOutDate),
-          numberOfGuests: Math.max(1, Math.round(Number(numberOfGuests || 1) / targetRoomIds.length)),
-          advancePayment: i === 0 ? Number(advancePayment || 0) : 0,
-          price: Number(price),
-          notes: i === 0 ? notes : `Part of group booking: ${notes || ''}`,
-          registrationNumber: regNum,
-        });
-
-        if (!booking) {
-          return next(new AppError(500, 'Booking transaction failed.'));
-        }
-        createdBookings.push(booking);
+        roomNumbers.push(room.roomNumber);
       }
 
-      const primaryBooking = createdBookings[0];
+      const regNum = targetRoomIds.length > 1 ? `${baseReg}-${roomNumbers.join('-')}` : baseReg;
+
+      // 3. Create Booking
+      const booking = await BookingRepository.create({
+        customerId: resolvedCustomerId,
+        roomIds: targetRoomIds,
+        checkInDate: new Date(checkInDate),
+        checkOutDate: new Date(checkOutDate),
+        numberOfGuests: Number(numberOfGuests || 1),
+        advancePayment: Number(advancePayment || 0),
+        price: Number(price),
+        notes,
+        registrationNumber: regNum,
+      });
+
+      if (!booking) {
+        return next(new AppError(500, 'Booking transaction failed.'));
+      }
 
       // Send confirmation notification
       await NotificationService.sendBookingConfirmation(
-        primaryBooking.customer.fullName,
-        primaryBooking.customer.mobileNumber,
-        primaryBooking.bookingNumber,
-        primaryBooking.room.roomNumber
+        booking.customer.fullName,
+        booking.customer.mobileNumber,
+        booking.bookingNumber,
+        roomNumbers.join(', ')
       );
 
       // Audit action
@@ -117,7 +112,7 @@ export class BookingController {
         userName: req.user?.fullName,
         action: 'Booking Created',
         ipAddress: req.ip as string,
-        details: { bookingId: primaryBooking.id, bookingNumber: primaryBooking.bookingNumber, roomIds: targetRoomIds },
+        details: { bookingId: booking.id, bookingNumber: booking.bookingNumber, roomIds: targetRoomIds },
       });
 
       // Invalidate dashboard stats
@@ -125,7 +120,7 @@ export class BookingController {
 
       res.status(201).json({
         success: true,
-        data: primaryBooking,
+        data: booking,
       });
     } catch (error) {
       next(error);
@@ -319,8 +314,8 @@ export class BookingController {
 
     for (const roomId of roomIds) {
       const room = await RoomRepository.findById(roomId);
-      if (!room || (room.status !== 'AVAILABLE' && room.status !== 'ADVANCE_BOOKED')) {
-        throw new AppError(400, `Selected room ${room?.roomNumber || roomId} is not available.`);
+      if (!room) {
+        throw new AppError(400, `Selected room ${roomId} is not available.`);
       }
     }
 
@@ -381,7 +376,7 @@ export class BookingController {
       checkInDate,
       checkOutDate,
       status,
-      roomId: payload.roomId || (Array.isArray(payload.roomIds) ? payload.roomIds[0] : undefined),
+      roomIds: payload.roomIds || (payload.roomId ? [payload.roomId] : []),
       price: payload.price ?? payload.pricePerNight,
       advancePayment: payload.advancePayment ?? payload.advancePaid,
     };

@@ -33,11 +33,11 @@ export class RoomRepository {
       include: {
         checkIns: {
           where: { status: 'ACTIVE' },
-          include: { customer: true, extraCharges: true },
+          include: { customer: true, rooms: true },
         },
         bookings: {
-          where: { status: 'CONFIRMED' },
-          include: { customer: true },
+          where: { status: { in: ['PENDING', 'CONFIRMED'] } },
+          include: { customer: true, rooms: true },
         },
       },
     });
@@ -54,7 +54,7 @@ export class RoomRepository {
           NOT: { id: activeCheckIn.id },
         },
         include: {
-          room: true,
+          rooms: true,
         },
       });
       (mapped.checkIns[0] as any).otherCheckIns = otherCheckIns;
@@ -67,7 +67,7 @@ export class RoomRepository {
           NOT: { id: activeBooking.id },
         },
         include: {
-          room: true,
+          rooms: true,
         },
       });
       (mapped.bookings[0] as any).otherBookings = otherBookings;

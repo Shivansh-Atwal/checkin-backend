@@ -46,7 +46,7 @@ export class InvoiceService {
         checkIn: {
           include: {
             customer: true,
-            room: true,
+            rooms: true,
           },
         },
       },
@@ -56,7 +56,7 @@ export class InvoiceService {
       throw new Error('Checkout record not found.');
     }
 
-    const { customer, room, checkInTime, expectedCheckOutDate, actualCheckOutTime, registrationNumber, pricePerNight } = checkout.checkIn;
+    const { customer, rooms, checkInTime, expectedCheckOutDate, actualCheckOutTime, registrationNumber, pricePerNight } = checkout.checkIn;
     const checkoutTimeToShow = actualCheckOutTime || expectedCheckOutDate;
     const nights = Math.max(
       1,
@@ -130,7 +130,7 @@ export class InvoiceService {
           
           <tr class="details">
             <td>
-              Room ${room.roomNumber} (${room.capacity > 2 ? 'Deluxe' : 'Standard'})<br>
+              Room(s) ${rooms.map((r: any) => r.roomNumber).join(', ')} (${rooms.some((r: any) => r.capacity > 2) ? 'Deluxe' : 'Standard'})<br>
               Registration No: ${registrationNumber || 'N/A'}<br>
               Check-In: ${new Date(checkInTime).toLocaleString()}<br>
               Check-Out: ${new Date(checkoutTimeToShow).toLocaleString()}

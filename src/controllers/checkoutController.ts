@@ -98,7 +98,7 @@ export class CheckoutController {
               { registrationNumber: { startsWith: `${registrationNumber}-` } }
             ]
           },
-          include: { customer: true, room: true },
+          include: { customer: true, rooms: true },
         });
         if (existingReg) {
           res.status(200).json({
@@ -195,11 +195,10 @@ export class CheckoutController {
         return next(new AppError(500, 'Walk-in check-in failed.'));
       }
 
-      // Send greeting notification
       await NotificationService.sendCheckInReminder(
         checkIn.customer.fullName,
         checkIn.customer.mobileNumber,
-        checkIn.room.roomNumber
+        checkIn.rooms.map((r: any) => r.roomNumber).join(', ')
       );
 
       // Audit log
@@ -252,7 +251,7 @@ export class CheckoutController {
     }
 
     try {
-      const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+      const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: { rooms: true } });
       if (!booking) {
         return next(new AppError(404, 'Booking not found.'));
       }
@@ -290,21 +289,31 @@ export class CheckoutController {
         const requestedRoomsCount = Math.max(1, Number(numberOfRooms || 1));
         const availableRooms = await RoomRepository.getAll({ status: 'AVAILABLE' });
 
-        const bookingRoom = await RoomRepository.findById(booking.roomId);
-        if (!bookingRoom) {
-          return next(new AppError(404, 'Room associated with the booking not found.'));
+        const bookingRoomsData = booking.rooms;
+        if (!bookingRoomsData || bookingRoomsData.length === 0) {
+          return next(new AppError(404, 'Rooms associated with the booking not found.'));
         }
-        if (bookingRoom.status !== 'AVAILABLE' && bookingRoom.status !== 'ADVANCE_BOOKED') {
-          return next(
-            new AppError(
-              400,
-              `Room ${bookingRoom.roomNumber} is currently ${bookingRoom.status.toLowerCase().replace('_', ' ')}. Please edit the booking to select a different room first.`
-            )
-          );
+        
+        const bookingRooms = [];
+        for (const br of bookingRoomsData) {
+          const roomWithStatus = await RoomRepository.findById(br.id);
+          if (roomWithStatus) bookingRooms.push(roomWithStatus);
         }
-        const isBookingRoomAvailable = bookingRoom.status === 'AVAILABLE';
-        const neededFreeRooms = isBookingRoomAvailable ? requestedRoomsCount : requestedRoomsCount - 1;
-        const totalFreeRoomsCount = isBookingRoomAvailable ? availableRooms.length : availableRooms.length + 1;
+
+        for (const bookingRoom of bookingRooms) {
+          if (bookingRoom.status !== 'AVAILABLE' && bookingRoom.status !== 'ADVANCE_BOOKED') {
+            return next(
+              new AppError(
+                400,
+                `Room ${bookingRoom.roomNumber} is currently ${bookingRoom.status.toLowerCase().replace('_', ' ')}. Please edit the booking to select a different room first.`
+              )
+            );
+          }
+        }
+        
+        const isBookingRoomAvailable = bookingRooms.every((r: any) => r.status === 'AVAILABLE');
+        const neededFreeRooms = isBookingRoomAvailable ? requestedRoomsCount : requestedRoomsCount - bookingRooms.length;
+        const totalFreeRoomsCount = isBookingRoomAvailable ? availableRooms.length : availableRooms.length + bookingRooms.length;
 
         if (availableRooms.length < neededFreeRooms) {
           return next(
@@ -316,9 +325,10 @@ export class CheckoutController {
         }
 
         // Compile allocation list
-        roomIdsToAllocate = [booking.roomId];
-        const otherFreeRooms = availableRooms.filter((r) => r.id !== booking.roomId);
-        for (let i = 0; i < requestedRoomsCount - 1; i++) {
+        roomIdsToAllocate = [...bookingRooms.map((r: any) => r.id)];
+        const bookingRoomIds = new Set(roomIdsToAllocate);
+        const otherFreeRooms = availableRooms.filter((r) => !bookingRoomIds.has(r.id));
+        for (let i = 0; i < requestedRoomsCount - bookingRooms.length; i++) {
           if (otherFreeRooms[i]) {
             roomIdsToAllocate.push(otherFreeRooms[i].id);
           }
@@ -363,11 +373,10 @@ export class CheckoutController {
         return next(new AppError(500, 'Check-in from booking failed.'));
       }
 
-      // Send checkin confirmation
       await NotificationService.sendCheckInReminder(
         checkIn.customer.fullName,
         checkIn.customer.mobileNumber,
-        checkIn.room.roomNumber
+        checkIn.rooms.map((r: any) => r.roomNumber).join(', ')
       );
 
       // Audit log
@@ -582,7 +591,7 @@ export class CheckoutController {
           status: 'ACTIVE',
         },
         include: {
-          room: true,
+          rooms: true,
           customer: true,
           extraCharges: true,
         },
@@ -614,8 +623,8 @@ export class CheckoutController {
         totalAdvancePaid += stay.advancePaid;
         return {
           id: stay.id,
-          roomNumber: stay.room.roomNumber,
-          roomType: stay.room.capacity > 2 ? 'Deluxe' : 'Standard',
+          roomNumber: stay.rooms.map((r: any) => r.roomNumber).join(', '),
+          roomType: stay.rooms.some((r: any) => r.capacity > 2) ? 'Deluxe' : 'Standard',
           pricePerNight: stay.pricePerNight,
           nights: calc.nights,
           roomCharges: calc.roomCharges,
@@ -687,7 +696,7 @@ export class CheckoutController {
         if (checkIn?.checkoutRecord) {
           const existingCheckout = await prisma.checkout.findUnique({
             where: { checkInId: checkIn.id },
-            include: { checkIn: { include: { room: true } }, invoice: true },
+            include: { checkIn: { include: { rooms: true } }, invoice: true },
           });
           const invoiceUrl = existingCheckout
             ? await CheckoutController.ensureInvoiceUrl(existingCheckout.id)
@@ -698,14 +707,14 @@ export class CheckoutController {
             message: 'Checkout was already recorded.',
             data: {
               checkout: {
-                roomId: checkIn.roomId,
-                roomNumber: checkIn.room.roomNumber,
+                roomId: checkIn.rooms.map((r: any) => r.id).join(','),
+                roomNumber: checkIn.rooms.map((r: any) => r.roomNumber).join(', '),
                 checkoutId: existingCheckout?.id,
                 invoiceUrl,
               },
               allCheckouts: [{
-                roomId: checkIn.roomId,
-                roomNumber: checkIn.room.roomNumber,
+                roomId: checkIn.rooms.map((r: any) => r.id).join(','),
+                roomNumber: checkIn.rooms.map((r: any) => r.roomNumber).join(', '),
                 checkoutId: existingCheckout?.id,
                 invoiceUrl,
               }],
@@ -718,73 +727,58 @@ export class CheckoutController {
         return;
       }
 
-      // Fetch all active stays for the same customer
-      const activeStays = await prisma.checkIn.findMany({
-        where: {
-          customerId: checkIn.customerId,
-          status: 'ACTIVE',
-        },
-        include: {
-          room: true,
-          extraCharges: true,
-        },
-      });
-
-      // Checkout each active stay in a loop
       const checkoutRecords = [];
       let aggregateAmount = 0;
 
-      for (const stay of activeStays) {
-        const isPrimary = stay.id === checkInId;
-        const diffMs = checkoutTimeObj.getTime() - new Date(stay.checkInTime).getTime();
-        const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-        const nights = Math.max(1, diffDays);
-        const extraBedCost = Number(stay.extraBedsCount || 0) * Number(stay.extraBedPrice || 0) * nights;
-        const extraSum = (stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0) + extraBedCost;
+      // Checkout the single active stay (which now contains all rooms)
+      const diffMs = checkoutTimeObj.getTime() - new Date(checkIn.checkInTime).getTime();
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      const nights = Math.max(1, diffDays);
+      const extraBedCost = Number(checkIn.extraBedsCount || 0) * Number(checkIn.extraBedPrice || 0) * nights;
+      const extraSum = (checkIn.extraCharges?.reduce((sum: any, item: any) => sum + item.amount, 0) || 0) + extraBedCost;
 
-        // Calculate stay bill for this specific room
-        const roomBill = InvoiceService.calculateStayBill({
-          pricePerNight: stay.pricePerNight,
-          checkInTime: stay.checkInTime,
-          expectedCheckOutDate: checkoutTimeObj,
-          additionalCharges: extraSum,
-          discount: 0,
-          taxRate: Number(taxRate !== undefined ? taxRate : 0.0),
-        });
+      // Calculate stay bill for all connected rooms combined (pricePerNight is already the total rate)
+      const roomBill = InvoiceService.calculateStayBill({
+        pricePerNight: checkIn.pricePerNight,
+        checkInTime: checkIn.checkInTime,
+        expectedCheckOutDate: checkoutTimeObj,
+        additionalCharges: extraSum,
+        discount: 0,
+        taxRate: Number(taxRate !== undefined ? taxRate : 0.0),
+      });
 
-        // Checkout stay
-        const checkoutRecord = await CheckoutRepository.create({
-          checkInId: stay.id,
-          roomCharges: roomBill.roomCharges,
-          additionalCharges: extraSum,
-          discount: 0,
-          taxAmount: roomBill.taxAmount,
-          finalAmount: roomBill.finalAmount,
-          paymentMethod,
-          notes: isPrimary ? notes : `Multi-room checkout aggregate stay`,
-          actualCheckOutTime: checkoutTimeObj,
-        });
+      // Checkout stay
+      const checkoutRecord = await CheckoutRepository.create({
+        checkInId: checkIn.id,
+        roomCharges: roomBill.roomCharges,
+        additionalCharges: extraSum,
+        discount: 0,
+        taxAmount: roomBill.taxAmount,
+        finalAmount: roomBill.finalAmount,
+        paymentMethod,
+        notes: notes || `Multi-room checkout aggregate stay`,
+        actualCheckOutTime: checkoutTimeObj,
+      });
 
-        if (!checkoutRecord) {
-          return next(new AppError(500, `Checkout for Room ${stay.room.roomNumber} failed.`));
-        }
-
-        // Generate invoice HTML file and update path
-        const invoiceUrl = await InvoiceService.generateInvoiceHTML(checkoutRecord.id);
-        await prisma.invoice.update({
-          where: { checkoutId: checkoutRecord.id },
-          data: { pdfUrl: invoiceUrl },
-        });
-
-        aggregateAmount += roomBill.finalAmount;
-
-        checkoutRecords.push({
-          roomId: stay.roomId,
-          roomNumber: stay.room.roomNumber,
-          checkoutId: checkoutRecord.id,
-          invoiceUrl,
-        });
+      if (!checkoutRecord) {
+        return next(new AppError(500, `Checkout for CheckIn ${checkIn.id} failed.`));
       }
+
+      // Generate invoice HTML file and update path
+      const invoiceUrl = await InvoiceService.generateInvoiceHTML(checkoutRecord.id);
+      await prisma.invoice.update({
+        where: { checkoutId: checkoutRecord.id },
+        data: { pdfUrl: invoiceUrl },
+      });
+
+      aggregateAmount += roomBill.finalAmount;
+
+      checkoutRecords.push({
+        roomId: checkIn.rooms.map((r: any) => r.id).join(','),
+        roomNumber: checkIn.rooms.map((r: any) => r.roomNumber).join(', '),
+        checkoutId: checkoutRecord.id,
+        invoiceUrl,
+      });
 
       // Send checkout receipt notification
       await NotificationService.sendPaymentReceipt(
@@ -801,9 +795,9 @@ export class CheckoutController {
         action: 'Payment Collected',
         ipAddress: req.ip as string,
         details: {
-          checkoutStaysCount: activeStays.length,
+          checkoutStaysCount: 1,
           customerId: checkIn.customerId,
-          roomNumbers: activeStays.map(s => s.room.roomNumber).join(', ')
+          roomNumbers: checkIn.rooms.map((r: any) => r.roomNumber).join(', ')
         },
       });
 
@@ -835,15 +829,15 @@ export class CheckoutController {
         message: 'Historical checkout was already recorded.',
         data: {
           checkout: {
-            roomId: existingHistorical.roomId,
-            roomNumber: existingHistorical.room.roomNumber,
+            roomId: existingHistorical.rooms.map((r: any) => r.id).join(','),
+            roomNumber: existingHistorical.rooms.map((r: any) => r.roomNumber).join(', '),
             checkoutId: existingHistorical.checkoutRecord.id,
             invoiceUrl,
             historical: true,
           },
           allCheckouts: [{
-            roomId: existingHistorical.roomId,
-            roomNumber: existingHistorical.room.roomNumber,
+            roomId: existingHistorical.rooms.map((r: any) => r.id).join(','),
+            roomNumber: existingHistorical.rooms.map((r: any) => r.roomNumber).join(', '),
             checkoutId: existingHistorical.checkoutRecord.id,
             invoiceUrl,
             historical: true,
@@ -894,7 +888,7 @@ export class CheckoutController {
         status: 'CHECKED_OUT',
       },
       include: {
-        room: true,
+        rooms: true,
         checkoutRecord: true,
       },
     });
@@ -904,8 +898,8 @@ export class CheckoutController {
       if (!stay.checkoutRecord) continue;
       const invoiceUrl = await CheckoutController.ensureInvoiceUrl(stay.checkoutRecord.id);
       checkoutRecords.push({
-        roomId: stay.roomId,
-        roomNumber: stay.room.roomNumber,
+        roomId: stay.rooms.map((r: any) => r.id).join(','),
+        roomNumber: stay.rooms.map((r: any) => r.roomNumber).join(', '),
         checkoutId: stay.checkoutRecord.id,
         invoiceUrl,
         historical: true,
@@ -945,7 +939,7 @@ export class CheckoutController {
         status: 'CHECKED_OUT',
       },
       include: {
-        room: true,
+        rooms: true,
         checkoutRecord: true,
       },
     });

@@ -7,11 +7,11 @@ export class CustomerRepository {
       include: {
         documents: true,
         bookings: {
-          include: { room: true },
+          include: { rooms: true },
           orderBy: { createdAt: 'desc' },
         },
         checkIns: {
-          include: { room: true, checkoutRecord: true },
+          include: { rooms: true, checkoutRecord: true },
           orderBy: { createdAt: 'desc' },
         },
       },

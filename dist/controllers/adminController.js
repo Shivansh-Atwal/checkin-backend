@@ -403,7 +403,7 @@ class AdminController {
                             documents: true,
                         },
                     },
-                    room: true,
+                    rooms: true,
                     payments: true,
                 },
             });
@@ -436,7 +436,7 @@ class AdminController {
                     idCardNumber,
                     state: formatStateName(ci.customer.state || 'N/A'),
                     nationality: ci.customer.country || 'N/A',
-                    roomNumber: ci.room.roomNumber,
+                    roomNumber: ci.rooms.map((r) => r.roomNumber).join(', '),
                     roomPrice,
                     numberOfGuests: ci.numberOfGuests,
                     bednights,
@@ -488,9 +488,10 @@ class AdminController {
                         { actualCheckOutTime: { gte: todayStart } },
                         { actualCheckOutTime: null, expectedCheckOutDate: { gte: todayStart } }
                     ]
-                }
+                },
+                include: { rooms: true }
             });
-            const uniqueRoomsToday = new Set(staysToday.map(s => s.roomId));
+            const uniqueRoomsToday = new Set(staysToday.flatMap((s) => s.rooms.map((r) => r.id)));
             const roomsUsedToday = uniqueRoomsToday.size;
             const bookingsTodayCount = staysToday.length;
             const peopleStayedToday = staysToday.reduce((sum, s) => sum + s.numberOfGuests, 0);

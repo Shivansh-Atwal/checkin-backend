@@ -55,7 +55,7 @@ export class BookingRepository {
         customer: {
           include: { documents: true },
         },
-        room: true,
+        rooms: true,
         payments: true,
         checkInRecord: true,
       },
@@ -67,7 +67,7 @@ export class BookingRepository {
       where: { bookingNumber },
       include: {
         customer: true,
-        room: true,
+        rooms: true,
       },
     });
   }
@@ -92,7 +92,7 @@ export class BookingRepository {
           customer: {
             include: { documents: true },
           },
-          room: true,
+          rooms: true,
           payments: true,
           checkInRecord: true,
         },
@@ -110,7 +110,7 @@ export class BookingRepository {
           customer: {
             include: { documents: true },
           },
-          room: true,
+          rooms: true,
           payments: true,
           booking: true,
         },
@@ -211,13 +211,13 @@ export class BookingRepository {
         { bookingNumber: { contains: q, mode: 'insensitive' } },
         { customer: { fullName: { contains: q, mode: 'insensitive' } } },
         { customer: { mobileNumber: { contains: q } } },
-        { room: { roomNumber: { contains: q, mode: 'insensitive' } } },
+        { rooms: { some: { roomNumber: { contains: q, mode: 'insensitive' } } } },
       ];
 
       checkInWhereClause.OR = [
         { customer: { fullName: { contains: q, mode: 'insensitive' } } },
         { customer: { mobileNumber: { contains: q } } },
-        { room: { roomNumber: { contains: q, mode: 'insensitive' } } },
+        { rooms: { some: { roomNumber: { contains: q, mode: 'insensitive' } } } },
       ];
     }
 
@@ -228,7 +228,7 @@ export class BookingRepository {
           customer: {
             include: { documents: true }
           },
-          room: true,
+          rooms: true,
           checkInRecord: true,
         },
         orderBy: { createdAt: 'desc' },
@@ -239,7 +239,7 @@ export class BookingRepository {
           customer: {
             include: { documents: true }
           },
-          room: true,
+          rooms: true,
         },
         orderBy: { createdAt: 'desc' },
       })
@@ -261,9 +261,8 @@ export class BookingRepository {
       status: c.status === 'ACTIVE' ? 'CHECKED_IN' : 'CHECKED_OUT',
       notes: 'Walk-in Stay',
       customerId: c.customerId,
-      roomId: c.roomId,
       customer: c.customer,
-      room: c.room,
+      rooms: c.rooms,
       registrationNumber: c.registrationNumber,
       createdAt: c.createdAt,
       checkInRecord: {
@@ -307,7 +306,7 @@ export class BookingRepository {
       },
       include: {
         customer: true,
-        room: true,
+        rooms: true,
       },
     });
   }
@@ -315,7 +314,7 @@ export class BookingRepository {
   static async create(data: {
     id?: string;
     customerId: string;
-    roomId: string;
+    roomIds: string[];
     checkInDate: Date;
     checkOutDate: Date;
     numberOfGuests: number;
@@ -331,7 +330,7 @@ export class BookingRepository {
           id: data.id,
           bookingNumber,
           customerId: data.customerId,
-          roomId: data.roomId,
+          rooms: { connect: data.roomIds.map(id => ({ id })) },
           checkInDate: parseDateInput(data.checkInDate),
           checkOutDate: parseDateInput(data.checkOutDate),
           numberOfGuests: data.numberOfGuests,
@@ -361,7 +360,7 @@ export class BookingRepository {
 
       return tx.booking.findUnique({
         where: { id: booking.id },
-        include: { customer: true, room: true },
+        include: { customer: true, rooms: true },
       });
     },
       {
@@ -378,7 +377,7 @@ export class BookingRepository {
       numberOfGuests: number;
       advancePayment: number;
       price: number;
-      roomId: string;
+      roomIds: string[];
       status: string;
       notes: string;
       // Customer details updates
@@ -402,16 +401,15 @@ export class BookingRepository {
     return prisma.$transaction(async (tx) => {
       let actualId = id;
       let oldBooking = null;
-
       if (id !== 'offline') {
         oldBooking = await tx.booking.findUnique({
           where: { id },
-          include: { customer: true }
+          include: { customer: true, rooms: true }
         });
       } else if (data.registrationNumber) {
         oldBooking = await tx.booking.findFirst({
           where: { registrationNumber: data.registrationNumber.toUpperCase() },
-          include: { customer: true }
+          include: { customer: true, rooms: true }
         });
         if (oldBooking) {
           actualId = oldBooking.id;
@@ -424,12 +422,12 @@ export class BookingRepository {
         if (id !== 'offline') {
           oldCheckIn = await tx.checkIn.findUnique({
             where: { id },
-            include: { customer: true, checkoutRecord: true }
+            include: { customer: true, checkoutRecord: true, rooms: true }
           });
         } else if (data.registrationNumber) {
           oldCheckIn = await tx.checkIn.findFirst({
             where: { registrationNumber: data.registrationNumber.toUpperCase() },
-            include: { customer: true, checkoutRecord: true }
+            include: { customer: true, checkoutRecord: true, rooms: true }
           });
         }
         if (!oldCheckIn) throw new Error('Record not found');
@@ -486,19 +484,25 @@ export class BookingRepository {
         }
 
         // 2. Validate room status if room is changing
-        if (data.roomId && data.roomId !== oldCheckIn.roomId) {
-          const activeStay = await tx.checkIn.findFirst({
-            where: { roomId: data.roomId, status: 'ACTIVE' },
-            include: { room: true }
-          });
-          if (activeStay) {
-            throw new Error(`Room ${activeStay.room.roomNumber} is currently occupied.`);
+        if (data.roomIds && JSON.stringify(data.roomIds.sort()) !== JSON.stringify(oldCheckIn.rooms.map((r: any) => r.id).sort())) {
+          for (const rId of data.roomIds) {
+            const activeStay = await tx.checkIn.findFirst({
+              where: { rooms: { some: { id: rId } }, status: 'ACTIVE' },
+              include: { rooms: true }
+            });
+            if (activeStay && activeStay.id !== oldCheckIn.id) {
+              throw new Error(`One of the selected rooms is currently occupied.`);
+            }
           }
         }
 
         // 3. Update CheckIn record
         const checkInUpdates: any = {};
-        if (data.roomId !== undefined) checkInUpdates.roomId = data.roomId;
+        if (data.roomIds !== undefined) {
+          checkInUpdates.rooms = {
+            set: data.roomIds.map((id: string) => ({ id }))
+          };
+        }
         if (data.numberOfGuests !== undefined) checkInUpdates.numberOfGuests = Number(data.numberOfGuests);
         if (data.checkInDate !== undefined) checkInUpdates.checkInTime = parseDateInput(data.checkInDate);
         if (data.checkOutDate !== undefined) checkInUpdates.expectedCheckOutDate = parseDateInput(data.checkOutDate);
@@ -531,7 +535,7 @@ export class BookingRepository {
         const updatedCheckIn = await tx.checkIn.update({
           where: { id: oldCheckIn.id },
           data: checkInUpdates,
-          include: { customer: { include: { documents: true } }, room: true }
+          include: { customer: { include: { documents: true } }, rooms: true }
         });
 
         if (oldCheckIn.bookingId && data.status !== undefined) {
@@ -664,9 +668,8 @@ export class BookingRepository {
           status: updatedCheckIn.status === 'ACTIVE' ? 'CHECKED_IN' : 'CHECKED_OUT',
           notes: 'Walk-in Stay',
           customerId: updatedCheckIn.customerId,
-          roomId: updatedCheckIn.roomId,
           customer: updatedCheckIn.customer,
-          room: updatedCheckIn.room,
+          rooms: updatedCheckIn.rooms,
           registrationNumber: updatedCheckIn.registrationNumber,
         } as any;
       }
@@ -723,13 +726,15 @@ export class BookingRepository {
       }
 
       // 2. Validate room status if room is changing
-      if (data.roomId && data.roomId !== oldBooking.roomId) {
-        const activeStay = await tx.checkIn.findFirst({
-          where: { roomId: data.roomId, status: 'ACTIVE' },
-          include: { room: true }
-        });
-        if (activeStay) {
-          throw new Error(`Room ${activeStay.room.roomNumber} is currently occupied.`);
+      if (data.roomIds && JSON.stringify(data.roomIds.sort()) !== JSON.stringify(oldBooking.rooms.map((r: any) => r.id).sort())) {
+        for (const rId of data.roomIds) {
+          const activeStay = await tx.checkIn.findFirst({
+            where: { rooms: { some: { id: rId } }, status: 'ACTIVE' },
+            include: { rooms: true }
+          });
+          if (activeStay && activeStay.bookingId !== oldBooking.id) {
+            throw new Error(`One of the selected rooms is currently occupied.`);
+          }
         }
       }
 
@@ -740,7 +745,11 @@ export class BookingRepository {
       if (data.numberOfGuests !== undefined) bookingUpdates.numberOfGuests = Number(data.numberOfGuests);
       if (data.advancePayment !== undefined) bookingUpdates.advancePayment = Number(data.advancePayment);
       if (data.price !== undefined) bookingUpdates.price = Number(data.price);
-      if (data.roomId !== undefined) bookingUpdates.roomId = data.roomId;
+      if (data.roomIds !== undefined) {
+        bookingUpdates.rooms = {
+          set: data.roomIds.map((id: string) => ({ id }))
+        };
+      }
       if (data.status !== undefined) bookingUpdates.status = data.status;
       if (data.notes !== undefined) bookingUpdates.notes = data.notes ? data.notes.toUpperCase() : null;
       if (data.registrationNumber !== undefined) bookingUpdates.registrationNumber = data.registrationNumber ? data.registrationNumber.toUpperCase() : null;
@@ -803,7 +812,7 @@ export class BookingRepository {
 
       if (checkInRecord) {
         const checkInUpdates: any = {};
-        if (data.roomId !== undefined) checkInUpdates.roomId = data.roomId;
+        if (data.roomIds !== undefined) checkInUpdates.rooms = { set: data.roomIds.map(id => ({ id })) };
         if (data.numberOfGuests !== undefined) checkInUpdates.numberOfGuests = Number(data.numberOfGuests);
         if (data.checkInDate !== undefined) checkInUpdates.checkInTime = parseDateInput(data.checkInDate);
         if (data.checkOutDate !== undefined) checkInUpdates.expectedCheckOutDate = parseDateInput(data.checkOutDate);

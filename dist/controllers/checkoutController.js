@@ -76,7 +76,7 @@ class CheckoutController {
                             { registrationNumber: { startsWith: `${registrationNumber}-` } }
                         ]
                     },
-                    include: { customer: true, room: true },
+                    include: { customer: true, rooms: true },
                 });
                 if (existingReg) {
                     res.status(200).json({
@@ -160,8 +160,7 @@ class CheckoutController {
             if (!checkIn) {
                 return next(new errorHandler_1.AppError(500, 'Walk-in check-in failed.'));
             }
-            // Send greeting notification
-            await NotificationService_1.NotificationService.sendCheckInReminder(checkIn.customer.fullName, checkIn.customer.mobileNumber, checkIn.room.roomNumber);
+            await NotificationService_1.NotificationService.sendCheckInReminder(checkIn.customer.fullName, checkIn.customer.mobileNumber, checkIn.rooms.map((r) => r.roomNumber).join(', '));
             // Audit log
             await AuditLogService_1.AuditLogService.log({
                 userId: req.user?.id,
@@ -187,7 +186,7 @@ class CheckoutController {
             return next(new errorHandler_1.AppError(400, 'Booking ID is required.'));
         }
         try {
-            const booking = await db_1.default.booking.findUnique({ where: { id: bookingId } });
+            const booking = await db_1.default.booking.findUnique({ where: { id: bookingId }, include: { rooms: true } });
             if (!booking) {
                 return next(new errorHandler_1.AppError(404, 'Booking not found.'));
             }
@@ -222,23 +221,32 @@ class CheckoutController {
             else {
                 const requestedRoomsCount = Math.max(1, Number(numberOfRooms || 1));
                 const availableRooms = await RoomRepository_1.RoomRepository.getAll({ status: 'AVAILABLE' });
-                const bookingRoom = await RoomRepository_1.RoomRepository.findById(booking.roomId);
-                if (!bookingRoom) {
-                    return next(new errorHandler_1.AppError(404, 'Room associated with the booking not found.'));
+                const bookingRoomsData = booking.rooms;
+                if (!bookingRoomsData || bookingRoomsData.length === 0) {
+                    return next(new errorHandler_1.AppError(404, 'Rooms associated with the booking not found.'));
                 }
-                if (bookingRoom.status !== 'AVAILABLE' && bookingRoom.status !== 'ADVANCE_BOOKED') {
-                    return next(new errorHandler_1.AppError(400, `Room ${bookingRoom.roomNumber} is currently ${bookingRoom.status.toLowerCase().replace('_', ' ')}. Please edit the booking to select a different room first.`));
+                const bookingRooms = [];
+                for (const br of bookingRoomsData) {
+                    const roomWithStatus = await RoomRepository_1.RoomRepository.findById(br.id);
+                    if (roomWithStatus)
+                        bookingRooms.push(roomWithStatus);
                 }
-                const isBookingRoomAvailable = bookingRoom.status === 'AVAILABLE';
-                const neededFreeRooms = isBookingRoomAvailable ? requestedRoomsCount : requestedRoomsCount - 1;
-                const totalFreeRoomsCount = isBookingRoomAvailable ? availableRooms.length : availableRooms.length + 1;
+                for (const bookingRoom of bookingRooms) {
+                    if (bookingRoom.status !== 'AVAILABLE' && bookingRoom.status !== 'ADVANCE_BOOKED') {
+                        return next(new errorHandler_1.AppError(400, `Room ${bookingRoom.roomNumber} is currently ${bookingRoom.status.toLowerCase().replace('_', ' ')}. Please edit the booking to select a different room first.`));
+                    }
+                }
+                const isBookingRoomAvailable = bookingRooms.every((r) => r.status === 'AVAILABLE');
+                const neededFreeRooms = isBookingRoomAvailable ? requestedRoomsCount : requestedRoomsCount - bookingRooms.length;
+                const totalFreeRoomsCount = isBookingRoomAvailable ? availableRooms.length : availableRooms.length + bookingRooms.length;
                 if (availableRooms.length < neededFreeRooms) {
                     return next(new errorHandler_1.AppError(400, `Not enough rooms are free. Only ${totalFreeRoomsCount} rooms are currently free.`));
                 }
                 // Compile allocation list
-                roomIdsToAllocate = [booking.roomId];
-                const otherFreeRooms = availableRooms.filter((r) => r.id !== booking.roomId);
-                for (let i = 0; i < requestedRoomsCount - 1; i++) {
+                roomIdsToAllocate = [...bookingRooms.map((r) => r.id)];
+                const bookingRoomIds = new Set(roomIdsToAllocate);
+                const otherFreeRooms = availableRooms.filter((r) => !bookingRoomIds.has(r.id));
+                for (let i = 0; i < requestedRoomsCount - bookingRooms.length; i++) {
                     if (otherFreeRooms[i]) {
                         roomIdsToAllocate.push(otherFreeRooms[i].id);
                     }
@@ -280,8 +288,7 @@ class CheckoutController {
             if (!checkIn) {
                 return next(new errorHandler_1.AppError(500, 'Check-in from booking failed.'));
             }
-            // Send checkin confirmation
-            await NotificationService_1.NotificationService.sendCheckInReminder(checkIn.customer.fullName, checkIn.customer.mobileNumber, checkIn.room.roomNumber);
+            await NotificationService_1.NotificationService.sendCheckInReminder(checkIn.customer.fullName, checkIn.customer.mobileNumber, checkIn.rooms.map((r) => r.roomNumber).join(', '));
             // Audit log
             await AuditLogService_1.AuditLogService.log({
                 userId: req.user?.id,
@@ -456,7 +463,7 @@ class CheckoutController {
                     status: 'ACTIVE',
                 },
                 include: {
-                    room: true,
+                    rooms: true,
                     customer: true,
                     extraCharges: true,
                 },
@@ -485,8 +492,8 @@ class CheckoutController {
                 totalAdvancePaid += stay.advancePaid;
                 return {
                     id: stay.id,
-                    roomNumber: stay.room.roomNumber,
-                    roomType: stay.room.capacity > 2 ? 'Deluxe' : 'Standard',
+                    roomNumber: stay.rooms.map((r) => r.roomNumber).join(', '),
+                    roomType: stay.rooms.some((r) => r.capacity > 2) ? 'Deluxe' : 'Standard',
                     pricePerNight: stay.pricePerNight,
                     nights: calc.nights,
                     roomCharges: calc.roomCharges,
@@ -546,7 +553,7 @@ class CheckoutController {
                 if (checkIn?.checkoutRecord) {
                     const existingCheckout = await db_1.default.checkout.findUnique({
                         where: { checkInId: checkIn.id },
-                        include: { checkIn: { include: { room: true } }, invoice: true },
+                        include: { checkIn: { include: { rooms: true } }, invoice: true },
                     });
                     const invoiceUrl = existingCheckout
                         ? await CheckoutController.ensureInvoiceUrl(existingCheckout.id)
@@ -556,14 +563,14 @@ class CheckoutController {
                         message: 'Checkout was already recorded.',
                         data: {
                             checkout: {
-                                roomId: checkIn.roomId,
-                                roomNumber: checkIn.room.roomNumber,
+                                roomId: checkIn.rooms.map((r) => r.id).join(','),
+                                roomNumber: checkIn.rooms.map((r) => r.roomNumber).join(', '),
                                 checkoutId: existingCheckout?.id,
                                 invoiceUrl,
                             },
                             allCheckouts: [{
-                                    roomId: checkIn.roomId,
-                                    roomNumber: checkIn.room.roomNumber,
+                                    roomId: checkIn.rooms.map((r) => r.id).join(','),
+                                    roomNumber: checkIn.rooms.map((r) => r.roomNumber).join(', '),
                                     checkoutId: existingCheckout?.id,
                                     invoiceUrl,
                                 }],
@@ -574,65 +581,51 @@ class CheckoutController {
                 await CheckoutController.createPreviousStayFromCheckout(req, res, checkoutTimeObj);
                 return;
             }
-            // Fetch all active stays for the same customer
-            const activeStays = await db_1.default.checkIn.findMany({
-                where: {
-                    customerId: checkIn.customerId,
-                    status: 'ACTIVE',
-                },
-                include: {
-                    room: true,
-                    extraCharges: true,
-                },
-            });
-            // Checkout each active stay in a loop
             const checkoutRecords = [];
             let aggregateAmount = 0;
-            for (const stay of activeStays) {
-                const isPrimary = stay.id === checkInId;
-                const diffMs = checkoutTimeObj.getTime() - new Date(stay.checkInTime).getTime();
-                const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-                const nights = Math.max(1, diffDays);
-                const extraBedCost = Number(stay.extraBedsCount || 0) * Number(stay.extraBedPrice || 0) * nights;
-                const extraSum = (stay.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0) + extraBedCost;
-                // Calculate stay bill for this specific room
-                const roomBill = InvoiceService_1.InvoiceService.calculateStayBill({
-                    pricePerNight: stay.pricePerNight,
-                    checkInTime: stay.checkInTime,
-                    expectedCheckOutDate: checkoutTimeObj,
-                    additionalCharges: extraSum,
-                    discount: 0,
-                    taxRate: Number(taxRate !== undefined ? taxRate : 0.0),
-                });
-                // Checkout stay
-                const checkoutRecord = await CheckoutRepository_1.CheckoutRepository.create({
-                    checkInId: stay.id,
-                    roomCharges: roomBill.roomCharges,
-                    additionalCharges: extraSum,
-                    discount: 0,
-                    taxAmount: roomBill.taxAmount,
-                    finalAmount: roomBill.finalAmount,
-                    paymentMethod,
-                    notes: isPrimary ? notes : `Multi-room checkout aggregate stay`,
-                    actualCheckOutTime: checkoutTimeObj,
-                });
-                if (!checkoutRecord) {
-                    return next(new errorHandler_1.AppError(500, `Checkout for Room ${stay.room.roomNumber} failed.`));
-                }
-                // Generate invoice HTML file and update path
-                const invoiceUrl = await InvoiceService_1.InvoiceService.generateInvoiceHTML(checkoutRecord.id);
-                await db_1.default.invoice.update({
-                    where: { checkoutId: checkoutRecord.id },
-                    data: { pdfUrl: invoiceUrl },
-                });
-                aggregateAmount += roomBill.finalAmount;
-                checkoutRecords.push({
-                    roomId: stay.roomId,
-                    roomNumber: stay.room.roomNumber,
-                    checkoutId: checkoutRecord.id,
-                    invoiceUrl,
-                });
+            // Checkout the single active stay (which now contains all rooms)
+            const diffMs = checkoutTimeObj.getTime() - new Date(checkIn.checkInTime).getTime();
+            const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+            const nights = Math.max(1, diffDays);
+            const extraBedCost = Number(checkIn.extraBedsCount || 0) * Number(checkIn.extraBedPrice || 0) * nights;
+            const extraSum = (checkIn.extraCharges?.reduce((sum, item) => sum + item.amount, 0) || 0) + extraBedCost;
+            // Calculate stay bill for all connected rooms combined (pricePerNight is already the total rate)
+            const roomBill = InvoiceService_1.InvoiceService.calculateStayBill({
+                pricePerNight: checkIn.pricePerNight,
+                checkInTime: checkIn.checkInTime,
+                expectedCheckOutDate: checkoutTimeObj,
+                additionalCharges: extraSum,
+                discount: 0,
+                taxRate: Number(taxRate !== undefined ? taxRate : 0.0),
+            });
+            // Checkout stay
+            const checkoutRecord = await CheckoutRepository_1.CheckoutRepository.create({
+                checkInId: checkIn.id,
+                roomCharges: roomBill.roomCharges,
+                additionalCharges: extraSum,
+                discount: 0,
+                taxAmount: roomBill.taxAmount,
+                finalAmount: roomBill.finalAmount,
+                paymentMethod,
+                notes: notes || `Multi-room checkout aggregate stay`,
+                actualCheckOutTime: checkoutTimeObj,
+            });
+            if (!checkoutRecord) {
+                return next(new errorHandler_1.AppError(500, `Checkout for CheckIn ${checkIn.id} failed.`));
             }
+            // Generate invoice HTML file and update path
+            const invoiceUrl = await InvoiceService_1.InvoiceService.generateInvoiceHTML(checkoutRecord.id);
+            await db_1.default.invoice.update({
+                where: { checkoutId: checkoutRecord.id },
+                data: { pdfUrl: invoiceUrl },
+            });
+            aggregateAmount += roomBill.finalAmount;
+            checkoutRecords.push({
+                roomId: checkIn.rooms.map((r) => r.id).join(','),
+                roomNumber: checkIn.rooms.map((r) => r.roomNumber).join(', '),
+                checkoutId: checkoutRecord.id,
+                invoiceUrl,
+            });
             // Send checkout receipt notification
             await NotificationService_1.NotificationService.sendPaymentReceipt(checkIn.customer.fullName, checkIn.customer.mobileNumber, aggregateAmount, `INV-${checkoutRecords[0].checkoutId.substring(0, 8).toUpperCase()}`);
             // Log action
@@ -642,9 +635,9 @@ class CheckoutController {
                 action: 'Payment Collected',
                 ipAddress: req.ip,
                 details: {
-                    checkoutStaysCount: activeStays.length,
+                    checkoutStaysCount: 1,
                     customerId: checkIn.customerId,
-                    roomNumbers: activeStays.map(s => s.room.roomNumber).join(', ')
+                    roomNumbers: checkIn.rooms.map((r) => r.roomNumber).join(', ')
                 },
             });
             await RedisService_1.RedisService.invalidateDashboardStats();
@@ -670,15 +663,15 @@ class CheckoutController {
                 message: 'Historical checkout was already recorded.',
                 data: {
                     checkout: {
-                        roomId: existingHistorical.roomId,
-                        roomNumber: existingHistorical.room.roomNumber,
+                        roomId: existingHistorical.rooms.map((r) => r.id).join(','),
+                        roomNumber: existingHistorical.rooms.map((r) => r.roomNumber).join(', '),
                         checkoutId: existingHistorical.checkoutRecord.id,
                         invoiceUrl,
                         historical: true,
                     },
                     allCheckouts: [{
-                            roomId: existingHistorical.roomId,
-                            roomNumber: existingHistorical.room.roomNumber,
+                            roomId: existingHistorical.rooms.map((r) => r.id).join(','),
+                            roomNumber: existingHistorical.rooms.map((r) => r.roomNumber).join(', '),
                             checkoutId: existingHistorical.checkoutRecord.id,
                             invoiceUrl,
                             historical: true,
@@ -724,7 +717,7 @@ class CheckoutController {
                 status: 'CHECKED_OUT',
             },
             include: {
-                room: true,
+                rooms: true,
                 checkoutRecord: true,
             },
         });
@@ -734,8 +727,8 @@ class CheckoutController {
                 continue;
             const invoiceUrl = await CheckoutController.ensureInvoiceUrl(stay.checkoutRecord.id);
             checkoutRecords.push({
-                roomId: stay.roomId,
-                roomNumber: stay.room.roomNumber,
+                roomId: stay.rooms.map((r) => r.id).join(','),
+                roomNumber: stay.rooms.map((r) => r.roomNumber).join(', '),
                 checkoutId: stay.checkoutRecord.id,
                 invoiceUrl,
                 historical: true,
@@ -771,7 +764,7 @@ class CheckoutController {
                 status: 'CHECKED_OUT',
             },
             include: {
-                room: true,
+                rooms: true,
                 checkoutRecord: true,
             },
         });

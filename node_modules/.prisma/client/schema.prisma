@@ -117,7 +117,6 @@ model Booking {
   checkInDate        DateTime
   checkOutDate       DateTime
   numberOfGuests     Int
-  roomId             String
   advancePayment     Float     @default(0)
   price              Float     @default(0)
   status             String
@@ -128,7 +127,7 @@ model Booking {
   extraBedPrice      Float     @default(0)
   extraBedsCount     Int       @default(0)
   customer           Customer  @relation(fields: [customerId], references: [id])
-  room               Room      @relation(fields: [roomId], references: [id])
+  rooms              Room[]
   checkInRecord      CheckIn?
   payments           Payment[]
 }
@@ -138,7 +137,6 @@ model CheckIn {
   registrationNumber   String?       @unique
   bookingId            String?       @unique
   customerId           String
-  roomId               String
   numberOfGuests       Int
   checkInTime          DateTime      @default(now())
   expectedCheckOutDate DateTime
@@ -153,7 +151,7 @@ model CheckIn {
   extraBedsCount       Int           @default(0)
   booking              Booking?      @relation(fields: [bookingId], references: [id])
   customer             Customer      @relation(fields: [customerId], references: [id])
-  room                 Room          @relation(fields: [roomId], references: [id])
+  rooms                Room[]
   checkoutRecord       Checkout?
   extraCharges         ExtraCharge[]
   payments             Payment[]
